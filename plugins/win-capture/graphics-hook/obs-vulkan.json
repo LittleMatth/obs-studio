@@ -1,0 +1,29 @@
+{
+    "file_format_version" : "1.1.2",
+    "layer" : {
+        "name": "VK_LAYER_OBS_HOOK",
+        "type": "GLOBAL",
+        "library_path": ".\\graphics-hook.dll",
+        "api_version": "1.1.114",
+        "implementation_version": "1",
+        "description": "Open Broadcaster Software hook",
+	    "functions": {
+		  "vkNegotiateLoaderLayerInterfaceVersion": "OBS_NegotiateLoaderLayerInterfaceVersion",
+		  "vkGetInstanceProcAddr": "OBS_GetInstanceProcAddr",
+		  "vkGetDeviceProcAddr": "OBS_GetDeviceProcAddr"
+		},
+       "device_extensions": [
+           {
+               "name": "VK_KHR_external_memory",
+               "spec_version": "1",
+               "entrypoints": ["OBS_ExternalMemoryEntryPointBegin", "OBS_ExternalMemoryEntryPointEnd"]
+           }
+       ],
+	   "enable_environment": {
+		  "ENABLE_VULKAN_OBS_CAPTURE": "1"
+		},
+		"disable_environment": {
+		  "DISABLE_VULKAN_OBS_CAPTURE": "1"
+		}
+    }
+}

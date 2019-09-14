@@ -2,6 +2,9 @@ project(graphics-hook)
 
 set(COMPILE_D3D12_HOOK FALSE CACHE BOOL "Compile D3D12 hook support (required windows 10 SDK)")
 
+find_package(Vulkan REQUIRED)
+include_directories(${VULKAN_INCLUDE_DIR})
+
 configure_file(
 	"${CMAKE_CURRENT_SOURCE_DIR}/graphics-hook-config.h.in"
 	"${CMAKE_BINARY_DIR}/plugins/win-capture/graphics-hook/config/graphics-hook-config.h")
@@ -33,6 +36,11 @@ if(MSVC)
 	add_compile_options("$<IF:$<CONFIG:Debug>,/MTd,/MT>")
 endif()
 
+if (VULKAN_FOUND)
+    list(APPEND graphics-hook_SOURCES
+        vulkan-capture.c)
+endif()
+
 add_library(graphics-hook MODULE
 	${graphics-hook_SOURCES}
 	${graphics-hook_HEADERS})
@@ -53,4 +61,14 @@ set_target_properties(graphics-hook
 	PROPERTIES
 		OUTPUT_NAME "graphics-hook${_output_suffix}")
 
+if (VULKAN_FOUND)
+	add_custom_command(TARGET graphics-hook POST_BUILD
+		COMMAND "${CMAKE_COMMAND}" -E copy
+			"${CMAKE_CURRENT_SOURCE_DIR}/obs-vulkan64.json" "${OBS_OUTPUT_DIR}/$<CONFIGURATION>/data/obs-plugins/win-capture/obs-vulkan64.json"
+		COMMAND "${CMAKE_COMMAND}" -E copy
+			"${CMAKE_CURRENT_SOURCE_DIR}/obs-vulkan.json" "${OBS_OUTPUT_DIR}/$<CONFIGURATION>/data/obs-plugins/win-capture/obs-vulkan.json"
+		COMMAND "${CMAKE_COMMAND}" -E copy
+			"${CMAKE_CURRENT_SOURCE_DIR}/obs-vulkan-registry.bat" "${OBS_OUTPUT_DIR}/$<CONFIGURATION>/data/obs-plugins/win-capture/obs-vulkan-registry.bat"
+		VERBATIM)
+endif()
 install_obs_datatarget(graphics-hook "obs-plugins/win-capture")
