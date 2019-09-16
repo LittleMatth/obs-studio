@@ -18,7 +18,7 @@
 #include <vulkan/vulkan_win32.h>
 #include <../Source/layers/vk_layer_dispatch_table.h>
 
-#define DEBUG_PRINT
+//#define DEBUG_PRINT
 
 #ifdef DEBUG_PRINT
 #include <stdio.h>
@@ -578,6 +578,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 
 	dispatchTable->GetMemoryWin32HandleKHR = (PFN_vkGetMemoryWin32HandleKHR)gdpa(*pDevice, "vkGetMemoryWin32HandleKHR");
 	dispatchTable->CreateImage = (PFN_vkCreateImage)gdpa(*pDevice, "vkCreateImage");
+	dispatchTable->DestroyImage = (PFN_vkDestroyImage)gdpa(*pDevice, "vkDestroyImage");
 	dispatchTable->GetImageMemoryRequirements = (PFN_vkGetImageMemoryRequirements)gdpa(*pDevice, "vkGetImageMemoryRequirements");
 
 	dispatchTable->BeginCommandBuffer = (PFN_vkBeginCommandBuffer)gdpa(*pDevice, "vkBeginCommandBuffer");
@@ -598,9 +599,6 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(VkDevice device, const VkS
 	VkLayerDispatchTable* dispatchTable = &devData->dispatchTable;
 
 	swapchainData* swchData = FindSwapchainData(devData, pCreateInfo->surface);
-
-
-
 
 	VkExternalMemoryImageCreateInfo extMemImageCreateInfo;
 	extMemImageCreateInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
@@ -690,11 +688,11 @@ VKAPI_ATTR void VKAPI_CALL OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainK
 
 	swapchainData* swchData = GetSwapchainData(devData, swapchain);
 
-	dispatchTable->FreeMemory(device, swchData->exportedImagesMemory[0], NULL);
-	dispatchTable->FreeMemory(device, swchData->exportedImagesMemory[1], NULL);
-
 	dispatchTable->DestroyImage(device, swchData->exportedImages[0], NULL);
 	dispatchTable->DestroyImage(device, swchData->exportedImages[1], NULL);
+
+	dispatchTable->FreeMemory(device, swchData->exportedImagesMemory[0], NULL);
+	dispatchTable->FreeMemory(device, swchData->exportedImagesMemory[1], NULL);
 
 	swchData->handle[0] = INVALID_HANDLE_VALUE;
 	swchData->handle[1] = INVALID_HANDLE_VALUE;
