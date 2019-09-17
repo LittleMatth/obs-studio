@@ -136,6 +136,7 @@ typedef struct deviceData {
 	uint32_t		queueFamilyIdx;
 	VkCommandPool		cmdPool;
 	VkCommandBuffer		cmdBuffer;
+	VkQueue			queue;
 	VkSemaphore		semaphore;
 
 }deviceData;
@@ -151,22 +152,13 @@ swapchainData* GetSwapchainData(deviceData* devData, VkSwapchainKHR swapchain) {
 	return NULL;
 }
 
-swapchainData* FindSwapchainData(deviceData* devData, VkSurfaceKHR surface) {
-	int firstFreeSlot = MAX_SWAPCHAIN_PER_DEVICE;
+swapchainData* GetNewSwapchainData(deviceData* devData, VkSurfaceKHR surface) {
 	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; ++i) {
-		if (devData->swapchains[i].surface == surface) {
+		if (devData->swapchains[i].surface == NULL && devData->swapchains[i].swapchain == NULL) {
 			return &devData->swapchains[i];
-		} else if (devData->swapchains[i].surface == NULL && firstFreeSlot == MAX_SWAPCHAIN_PER_DEVICE) {
-			firstFreeSlot = i;
 		}
 	}
-
-	if (firstFreeSlot != MAX_SWAPCHAIN_PER_DEVICE) {
-		devData->swapchains[firstFreeSlot].surface = surface;
-		return &devData->swapchains[firstFreeSlot];
-	}
-
-	DbgOut("# OBS_Layer # FindSwapchainData failed, no more free slot\n");
+	DbgOut("# OBS_Layer # GetNewSwapchainData failed, no more free slot\n");
 	return NULL;
 }
 
@@ -676,10 +668,16 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 	dispatchTable->EndCommandBuffer = (PFN_vkEndCommandBuffer)gdpa(*pDevice, "vkEndCommandBuffer");
 	dispatchTable->CmdCopyImage = (PFN_vkCmdCopyImage)gdpa(*pDevice, "vkCmdCopyImage");
 	dispatchTable->CmdPipelineBarrier = (PFN_vkCmdPipelineBarrier)gdpa(*pDevice, "vkCmdPipelineBarrier");
-	
+	dispatchTable->GetDeviceQueue = (PFN_vkGetDeviceQueue)gdpa(*pDevice, "vkGetDeviceQueue");
+	dispatchTable->QueueSubmit = (PFN_vkQueueSubmit)gdpa(*pDevice, "vkQueueSubmit");
 
 	dispatchTable->CreateCommandPool = (PFN_vkCreateCommandPool)gdpa(*pDevice, "vkCreateCommandPool");
 	dispatchTable->AllocateCommandBuffers = (PFN_vkAllocateCommandBuffers)gdpa(*pDevice, "vkAllocateCommandBuffers");
+
+
+	
+	// retrieve the queue
+	dispatchTable->GetDeviceQueue(*pDevice, qFamilyIdx, 0, &devData->queue);
 
 	if (devData->cmdPool == VK_NULL_HANDLE)
 	{
@@ -716,7 +714,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(VkDevice device, const VkS
 	deviceData* devData = GetDeviceData(TOKEY(device));
 	VkLayerDispatchTable* dispatchTable = &devData->dispatchTable;
 
-	swapchainData* swchData = FindSwapchainData(devData, pCreateInfo->surface);
+	swapchainData* swchData = GetNewSwapchainData(devData, pCreateInfo->surface);
 
 	swchData->imageExtent = pCreateInfo->imageExtent;
 	swchData->imageFormat = pCreateInfo->imageFormat;
@@ -817,29 +815,29 @@ VKAPI_ATTR void VKAPI_CALL OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainK
 	VkLayerDispatchTable* dispatchTable = &devData->dispatchTable;
 
 	swapchainData* swchData = GetSwapchainData(devData, swapchain);
+	if (swchData) {
+		dispatchTable->DestroyImage(device, swchData->exportedImages[0], NULL);
+		dispatchTable->DestroyImage(device, swchData->exportedImages[1], NULL);
 
-	dispatchTable->DestroyImage(device, swchData->exportedImages[0], NULL);
-	dispatchTable->DestroyImage(device, swchData->exportedImages[1], NULL);
+		dispatchTable->FreeMemory(device, swchData->exportedImagesMemory[0], NULL);
+		dispatchTable->FreeMemory(device, swchData->exportedImagesMemory[1], NULL);
 
-	dispatchTable->FreeMemory(device, swchData->exportedImagesMemory[0], NULL);
-	dispatchTable->FreeMemory(device, swchData->exportedImagesMemory[1], NULL);
+		swchData->handle[0] = INVALID_HANDLE_VALUE;
+		swchData->handle[1] = INVALID_HANDLE_VALUE;
 
-	swchData->handle[0] = INVALID_HANDLE_VALUE;
-	swchData->handle[1] = INVALID_HANDLE_VALUE;
-
-	swchData->swapchain = VK_NULL_HANDLE;
-
+		swchData->swapchain = VK_NULL_HANDLE;
+	}
 	dispatchTable->DestroySwapchainKHR(device, swapchain, pAllocator);
 }
 
 
 VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
 {
-
+	VkResult res = VK_SUCCESS;
 	deviceData* devData = GetDeviceData(TOKEY(queue));
 	VkLayerDispatchTable* dispatchTable = &devData->dispatchTable;
 	DbgOut2("# OBS_Layer # QueuePresentKHR called on devicekey %p, swapchaincount %d\n", dispatchTable, pPresentInfo->swapchainCount);
-/*
+
 	for (uint32_t i = 0; i < pPresentInfo->swapchainCount; ++i) {
 
 
@@ -852,7 +850,8 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresen
 		beginInfo.pInheritanceInfo = NULL;
 
 		// do image copy
-		dispatchTable->BeginCommandBuffer(devData->cmdBuffer, &beginInfo);
+		res = dispatchTable->BeginCommandBuffer(devData->cmdBuffer, &beginInfo);
+		DbgOutRes("# OBS_Layer # BeginCommandBuffer %s\n", res);
 
 		VkImageCopy cpy;
 		cpy.srcSubresource.aspectMask		= VK_IMAGE_ASPECT_COLOR_BIT;
@@ -875,15 +874,18 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresen
 
 		uint32_t pSwapchainImageCount = 0;
 		VkImage pSwapchainImages[MAX_IMAGES_PER_SWAPCHAIN];
-		dispatchTable->GetSwapchainImagesKHR(devData->device, pPresentInfo->pSwapchains[i], &pSwapchainImageCount, NULL);
+		res = dispatchTable->GetSwapchainImagesKHR(devData->device, pPresentInfo->pSwapchains[i], &pSwapchainImageCount, NULL);
+		DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
 
 		if (pSwapchainImageCount > 0) {
 			pSwapchainImageCount = (pSwapchainImageCount < MAX_IMAGES_PER_SWAPCHAIN) ? pSwapchainImageCount : MAX_IMAGES_PER_SWAPCHAIN;
-			dispatchTable->GetSwapchainImagesKHR(devData->device, pPresentInfo->pSwapchains[i], &pSwapchainImageCount, pSwapchainImages);
+			res = dispatchTable->GetSwapchainImagesKHR(devData->device, pPresentInfo->pSwapchains[i], &pSwapchainImageCount, pSwapchainImages);
+			DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
 		}
 		
 		VkImage currentBackBuffer = pSwapchainImages[pPresentInfo->pImageIndices[i]];
 
+		// transition currentBackBuffer to transfer source state
 		VkImageMemoryBarrier imBarrier;
 		imBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 		imBarrier.pNext = NULL;
@@ -901,8 +903,47 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresen
 		imBarrier.subresourceRange.layerCount = 1;
 
 		dispatchTable->CmdPipelineBarrier(devData->cmdBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &imBarrier);
+		///////
+
+		dispatchTable->CmdCopyImage(devData->cmdBuffer, currentBackBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swpchData->exportedImages[0], VK_IMAGE_LAYOUT_UNDEFINED, 1, &cpy);
+
+		///////
+		// transition currentBackBuffer to present source state
+		imBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		imBarrier.pNext = NULL;
+		imBarrier.srcAccessMask = 0;
+		imBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		imBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		imBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		imBarrier.srcQueueFamilyIndex = devData->queueFamilyIdx;
+		imBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		imBarrier.image = currentBackBuffer;
+		imBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imBarrier.subresourceRange.baseMipLevel = 0;
+		imBarrier.subresourceRange.levelCount = 1;
+		imBarrier.subresourceRange.baseArrayLayer = 0;
+		imBarrier.subresourceRange.layerCount = 1;
+
+		dispatchTable->CmdPipelineBarrier(devData->cmdBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &imBarrier);
+
+
+		VkSubmitInfo submit_info;
+		submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submit_info.pNext = NULL;
+		submit_info.waitSemaphoreCount = 0;
+		submit_info.pWaitSemaphores = NULL;
+		submit_info.pWaitDstStageMask = NULL;
+		submit_info.commandBufferCount = 1;
+		submit_info.pCommandBuffers = &devData->cmdBuffer;
+		submit_info.signalSemaphoreCount = 0;
+		submit_info.pSignalSemaphores = NULL;
+
+
+		res = dispatchTable->QueueSubmit(devData->queue, 1, &submit_info, VK_NULL_HANDLE);
+		DbgOutRes("# OBS_Layer # QueueSubmit %s\n", res);
+
 	}
-	*/
+	
 	return dispatchTable->QueuePresentKHR(queue, pPresentInfo);
 }
 
