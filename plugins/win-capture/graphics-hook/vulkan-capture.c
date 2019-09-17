@@ -18,7 +18,7 @@
 #include <vulkan/vulkan_win32.h>
 #include <../Source/layers/vk_layer_dispatch_table.h>
 
-#define DEBUG_PRINT
+//#define DEBUG_PRINT
 //#define DEBUG_PRINT_PROCADDR
 
 #ifdef DEBUG_PRINT
@@ -121,10 +121,10 @@ typedef struct swapchainData {
 	VkExtent2D			imageExtent;
 	VkFormat			imageFormat;
 	VkSurfaceKHR			surface;
-	VkImage				exportedImages[2];
-	VkDeviceMemory			exportedImagesMemory[2];
-	VkMemoryGetWin32HandleInfoKHR	getWin32HandleInfo[2];
-	HANDLE				handle[2];
+	VkImage				exportedImage;
+	VkDeviceMemory			exportedImageMemory;
+	VkMemoryGetWin32HandleInfoKHR	getWin32HandleInfo;
+	HANDLE				handle;
 }swapchainData;
 
 typedef struct deviceData {
@@ -152,7 +152,7 @@ swapchainData* GetSwapchainData(deviceData* devData, VkSwapchainKHR swapchain) {
 	return NULL;
 }
 
-swapchainData* GetNewSwapchainData(deviceData* devData, VkSurfaceKHR surface) {
+swapchainData* GetNewSwapchainData(deviceData* devData) {
 	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; ++i) {
 		if (devData->swapchains[i].surface == NULL && devData->swapchains[i].swapchain == NULL) {
 			return &devData->swapchains[i];
@@ -714,11 +714,11 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(VkDevice device, const VkS
 	deviceData* devData = GetDeviceData(TOKEY(device));
 	VkLayerDispatchTable* dispatchTable = &devData->dispatchTable;
 
-	swapchainData* swchData = GetNewSwapchainData(devData, pCreateInfo->surface);
+	swapchainData* swchData = GetNewSwapchainData(devData);
 
 	swchData->imageExtent = pCreateInfo->imageExtent;
 	swchData->imageFormat = pCreateInfo->imageFormat;
-
+	
 	VkExternalMemoryImageCreateInfo extMemImageCreateInfo;
 	extMemImageCreateInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
 	extMemImageCreateInfo.pNext = NULL;
@@ -743,8 +743,9 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(VkDevice device, const VkS
 	createInfo.pQueueFamilyIndices = pCreateInfo->pQueueFamilyIndices;		// const uint32_t*          
 	createInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-	dispatchTable->CreateImage(device, &createInfo, NULL, &swchData->exportedImages[0]);
-	dispatchTable->CreateImage(device, &createInfo, NULL, &swchData->exportedImages[1]);
+	VkResult res;
+	res = dispatchTable->CreateImage(device, &createInfo, NULL, &swchData->exportedImage);
+	DbgOutRes("# OBS_Layer # CreateImage %s\n", res);
 
 	VkExportMemoryAllocateInfo expMemAllocInfo;
 	expMemAllocInfo.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
@@ -752,8 +753,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(VkDevice device, const VkS
 	expMemAllocInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
 
 	VkMemoryRequirements memRequirements;
-	dispatchTable->GetImageMemoryRequirements(device, swchData->exportedImages[0], &memRequirements);
-	dispatchTable->GetImageMemoryRequirements(device, swchData->exportedImages[1], &memRequirements);
+	dispatchTable->GetImageMemoryRequirements(device, swchData->exportedImage, &memRequirements);
 
 	uint32_t memoryTypeIndex = 0;
 
@@ -774,30 +774,19 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(VkDevice device, const VkS
 	memAllocInfo.pNext = &expMemAllocInfo;
 	memAllocInfo.allocationSize = memRequirements.size;
 	memAllocInfo.memoryTypeIndex = memoryTypeIndex;
-	VkResult res;
-	res = dispatchTable->AllocateMemory(device, &memAllocInfo, NULL, &swchData->exportedImagesMemory[0]);
-	DbgOutRes("# OBS_Layer # AllocateMemory %s\n", res);
-	res = dispatchTable->AllocateMemory(device, &memAllocInfo, NULL, &swchData->exportedImagesMemory[1]);
+	
+	res = dispatchTable->AllocateMemory(device, &memAllocInfo, NULL, &swchData->exportedImageMemory);
 	DbgOutRes("# OBS_Layer # AllocateMemory %s\n", res);
 
-	res = dispatchTable->BindImageMemory(device, swchData->exportedImages[0], swchData->exportedImagesMemory[0], 0);
-	DbgOutRes("# OBS_Layer # BindImageMemory %s\n", res);
-	res = dispatchTable->BindImageMemory(device, swchData->exportedImages[1], swchData->exportedImagesMemory[1], 0);
+	res = dispatchTable->BindImageMemory(device, swchData->exportedImage, swchData->exportedImageMemory, 0);
 	DbgOutRes("# OBS_Layer # BindImageMemory %s\n", res);
 
-	swchData->getWin32HandleInfo[0].sType = VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
-	swchData->getWin32HandleInfo[0].pNext = NULL;
-	swchData->getWin32HandleInfo[0].memory = swchData->exportedImagesMemory[0];
-	swchData->getWin32HandleInfo[0].handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
+	swchData->getWin32HandleInfo.sType = VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
+	swchData->getWin32HandleInfo.pNext = NULL;
+	swchData->getWin32HandleInfo.memory = swchData->exportedImageMemory;
+	swchData->getWin32HandleInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
 
-	swchData->getWin32HandleInfo[1].sType = VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
-	swchData->getWin32HandleInfo[1].pNext = NULL;
-	swchData->getWin32HandleInfo[1].memory = swchData->exportedImagesMemory[1];
-	swchData->getWin32HandleInfo[1].handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
-
-	res = dispatchTable->GetMemoryWin32HandleKHR(device, &swchData->getWin32HandleInfo[0], &swchData->handle[0]);
-	DbgOutRes("# OBS_Layer # GetMemoryWin32HandleKHR %s\n", res);
-	res = dispatchTable->GetMemoryWin32HandleKHR(device, &swchData->getWin32HandleInfo[1], &swchData->handle[1]);
+	res = dispatchTable->GetMemoryWin32HandleKHR(device, &swchData->getWin32HandleInfo, &swchData->handle);
 	DbgOutRes("# OBS_Layer # GetMemoryWin32HandleKHR %s\n", res);
 
 	VkSwapchainCreateInfoKHR* swpchainCreateInfo = (VkSwapchainCreateInfoKHR*)pCreateInfo;
@@ -816,14 +805,11 @@ VKAPI_ATTR void VKAPI_CALL OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainK
 
 	swapchainData* swchData = GetSwapchainData(devData, swapchain);
 	if (swchData) {
-		dispatchTable->DestroyImage(device, swchData->exportedImages[0], NULL);
-		dispatchTable->DestroyImage(device, swchData->exportedImages[1], NULL);
+		dispatchTable->DestroyImage(device, swchData->exportedImage, NULL);
 
-		dispatchTable->FreeMemory(device, swchData->exportedImagesMemory[0], NULL);
-		dispatchTable->FreeMemory(device, swchData->exportedImagesMemory[1], NULL);
+		dispatchTable->FreeMemory(device, swchData->exportedImageMemory, NULL);
 
-		swchData->handle[0] = INVALID_HANDLE_VALUE;
-		swchData->handle[1] = INVALID_HANDLE_VALUE;
+		swchData->handle = INVALID_HANDLE_VALUE;
 
 		swchData->swapchain = VK_NULL_HANDLE;
 	}
@@ -884,7 +870,8 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresen
 		}
 		
 		VkImage currentBackBuffer = pSwapchainImages[pPresentInfo->pImageIndices[i]];
-
+	//*/
+		// with resource transition
 		// transition currentBackBuffer to transfer source state
 		VkImageMemoryBarrier imBarrier;
 		imBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -903,11 +890,10 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresen
 		imBarrier.subresourceRange.layerCount = 1;
 
 		dispatchTable->CmdPipelineBarrier(devData->cmdBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &imBarrier);
-		///////
 
-		dispatchTable->CmdCopyImage(devData->cmdBuffer, currentBackBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swpchData->exportedImages[0], VK_IMAGE_LAYOUT_UNDEFINED, 1, &cpy);
+		// copy currentBackBuffer's content to our interop image
+		dispatchTable->CmdCopyImage(devData->cmdBuffer, currentBackBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swpchData->exportedImage, VK_IMAGE_LAYOUT_UNDEFINED, 1, &cpy);
 
-		///////
 		// transition currentBackBuffer to present source state
 		imBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 		imBarrier.pNext = NULL;
@@ -925,8 +911,11 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresen
 		imBarrier.subresourceRange.layerCount = 1;
 
 		dispatchTable->CmdPipelineBarrier(devData->cmdBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &imBarrier);
-
-
+	/*/
+		// without resource transition
+		// copy currentBackBuffer's content to our interop image
+		dispatchTable->CmdCopyImage(devData->cmdBuffer, currentBackBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, swpchData->exportedImage, VK_IMAGE_LAYOUT_UNDEFINED, 1, &cpy);
+	//*/
 		VkSubmitInfo submit_info;
 		submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submit_info.pNext = NULL;
