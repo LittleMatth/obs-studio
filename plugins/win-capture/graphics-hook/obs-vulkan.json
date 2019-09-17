@@ -12,14 +12,28 @@
 		  "vkGetInstanceProcAddr": "OBS_GetInstanceProcAddr",
 		  "vkGetDeviceProcAddr": "OBS_GetDeviceProcAddr"
 		},
+		"pre_instance_functions": {
+		  "vkEnumerateInstanceExtensionProperties": "OBS_EnumerateInstanceExtensionProperties"
+		},
+		"instance_extensions": [
+           {
+               "name": "VK_KHR_external_memory_capabilities",
+               "spec_version": "1.1",
+               "entrypoints": ["OBS_ExtMemCapBegin", "OBS_ExtMemCapEnd"]
+           }
+		],		
        "device_extensions": [
+           {
+               "name": "VK_KHR_external_memory_win32",
+               "spec_version": "1",
+               "entrypoints": ["OBS_ExtMemWin32Begin", "OBS_ExtMemWin32End"]
+           },
            {
                "name": "VK_KHR_external_memory",
                "spec_version": "1",
-               "entrypoints": ["OBS_ExternalMemoryEntryPointBegin", "OBS_ExternalMemoryEntryPointEnd"]
+               "entrypoints": ["OBS_ExtMemBegin", "OBS_ExtMemEnd"]
            }
-       ],
-	   "enable_environment": {
+       ],	   "enable_environment": {
 		  "ENABLE_VULKAN_OBS_CAPTURE": "1"
 		},
 		"disable_environment": {

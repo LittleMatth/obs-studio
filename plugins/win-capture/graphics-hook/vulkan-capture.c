@@ -18,11 +18,19 @@
 #include <vulkan/vulkan_win32.h>
 #include <../Source/layers/vk_layer_dispatch_table.h>
 
-//#define DEBUG_PRINT
+#define DEBUG_PRINT
+//#define DEBUG_PRINT_PROCADDR
 
 #ifdef DEBUG_PRINT
 #include <stdio.h>
 #define DbgOut(x) OutputDebugStringA(x)
+#define DbgOut1(x,y)				\
+	{					\
+		char string[256];		\
+		sprintf(string, x, y);		\
+		DbgOut(string);			\
+	}					\
+
 #define DbgOut2(x,y,z)				\
 	{					\
 		char string[256];		\
@@ -30,9 +38,68 @@
 		DbgOut(string);			\
 	}					\
 
+#if defined( DEBUG_PRINT_PROCADDR )
+#define DbgOutProcAddr(x, y, z) DbgOut2(x, y, z)
+#else
+#define DbgOutProcAddr(x, y, z)
+#endif
+
+const char * VkResultString(VkResult result) {
+	switch (result) {
+	case VK_SUCCESS: return "VK_SUCCESS"; break;
+	case VK_NOT_READY: return "VK_NOT_READY"; break;
+	case VK_TIMEOUT: return "VK_TIMEOUT"; break;
+	case VK_EVENT_SET: return "VK_EVENT_SET"; break;
+	case VK_EVENT_RESET: return "VK_EVENT_RESET"; break;
+	case VK_INCOMPLETE: return "VK_INCOMPLETE"; break;
+	case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY"; break;
+	case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY"; break;
+	case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED"; break;
+	case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST"; break;
+	case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED"; break;
+	case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT"; break;
+	case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT"; break;
+	case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT"; break;
+	case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER"; break;
+	case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS"; break;
+	case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED"; break;
+	case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL"; break;
+	case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY"; break;
+	case VK_ERROR_INVALID_EXTERNAL_HANDLE: return "VK_ERROR_INVALID_EXTERNAL_HANDLE"; break;
+	case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR"; break;
+	case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR: return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR"; break;
+	case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR"; break;
+	case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR"; break;
+	case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR: return "VK_ERROR_INCOMPATIBLE_DISPLAY_KHR"; break;
+	case VK_ERROR_VALIDATION_FAILED_EXT: return "VK_ERROR_VALIDATION_FAILED_EXT"; break;
+	case VK_ERROR_INVALID_SHADER_NV: return "VK_ERROR_INVALID_SHADER_NV"; break;
+	case VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT: return "VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT"; break;
+	case VK_ERROR_FRAGMENTATION_EXT: return "VK_ERROR_FRAGMENTATION_EXT"; break;
+	case VK_ERROR_NOT_PERMITTED_EXT: return "VK_ERROR_NOT_PERMITTED_EXT"; break;
+	case VK_ERROR_INVALID_DEVICE_ADDRESS_EXT: return "VK_ERROR_INVALID_DEVICE_ADDRESS_EXT"; break;
+	case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT: return "VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT"; break;
+	//case VK_ERROR_OUT_OF_POOL_MEMORY_KHR: return "VK_ERROR_OUT_OF_POOL_MEMORY_KHR"; break;
+	//case VK_ERROR_INVALID_EXTERNAL_HANDLE_KHR: return "VK_ERROR_INVALID_EXTERNAL_HANDLE_KHR"; break;
+	//case VK_RESULT_BEGIN_RANGE: return "VK_RESULT_BEGIN_RANGE"; break;
+	//case VK_RESULT_END_RANGE: return "VK_RESULT_END_RANGE"; break;
+	case VK_RESULT_RANGE_SIZE: return "VK_RESULT_RANGE_SIZE"; break;
+	case VK_RESULT_MAX_ENUM: return "VK_RESULT_MAX_ENUM"; break;
+	default: return "UNKNOWN VK_RESULT"; break;
+	}
+}
+#define DbgOutRes(x,y)						\
+	{							\
+		char string[256];				\
+		sprintf(string, x, VkResultString(y));		\
+		DbgOut(string);					\
+	}							\
+
 #else
 #define DbgOut(x)
+#define DbgOut1(x,y)
 #define DbgOut2(x,y,z)
+#define DbgOutProcAddr(x, y, z)
+#define DbgOutRes(x,y)
 #endif
 
 #define MAX_INSTANCE_COUNT 16
@@ -40,29 +107,37 @@
 #define MAX_DEVICE_COUNT 16
 #define MAX_SWAPCHAIN_PER_DEVICE 16
 #define MAX_PHYSICALDEVICE_COUNT 16
+#define MAX_IMAGES_PER_SWAPCHAIN 16
 
 
 static BOOL initialized = FALSE;
 CRITICAL_SECTION mutex;
 
-
 // use the loader's dispatch table pointer as a key for dispatch map lookups
 #define TOKEY(x) (*(void **)x)
 
 typedef struct swapchainData {
-	VkSwapchainKHR swapchain;
-	VkSurfaceKHR surface;
-	VkImage exportedImages[2];
-	VkDeviceMemory exportedImagesMemory[2];
-	VkMemoryGetWin32HandleInfoKHR getWin32HandleInfo[2];
-	HANDLE handle[2];
+	VkSwapchainKHR			swapchain;
+	VkExtent2D			imageExtent;
+	VkFormat			imageFormat;
+	VkSurfaceKHR			surface;
+	VkImage				exportedImages[2];
+	VkDeviceMemory			exportedImagesMemory[2];
+	VkMemoryGetWin32HandleInfoKHR	getWin32HandleInfo[2];
+	HANDLE				handle[2];
 }swapchainData;
 
 typedef struct deviceData {
-	VkLayerDispatchTable dispatchTable;
-	VkPhysicalDevice physicalDevice;
-	swapchainData swapchains[MAX_SWAPCHAIN_PER_DEVICE];
-	uint32_t queueFamilyIdx;
+	VkLayerDispatchTable	dispatchTable;
+	VkPhysicalDevice	physicalDevice;
+	VkDevice		device;
+	swapchainData		swapchains[MAX_SWAPCHAIN_PER_DEVICE];
+
+	uint32_t		queueFamilyIdx;
+	VkCommandPool		cmdPool;
+	VkCommandBuffer		cmdBuffer;
+	VkSemaphore		semaphore;
+
 }deviceData;
 
 
@@ -72,7 +147,7 @@ swapchainData* GetSwapchainData(deviceData* devData, VkSwapchainKHR swapchain) {
 			return &devData->swapchains[i];
 		}
 	}
-	DbgOut("GetSwapchainData failed, swapchain not found");
+	DbgOut("# OBS_Layer # GetSwapchainData failed, swapchain not found\n");
 	return NULL;
 }
 
@@ -91,7 +166,7 @@ swapchainData* FindSwapchainData(deviceData* devData, VkSurfaceKHR surface) {
 		return &devData->swapchains[firstFreeSlot];
 	}
 
-	DbgOut("FindSwapchainData failed, no more free slot");
+	DbgOut("# OBS_Layer # FindSwapchainData failed, no more free slot\n");
 	return NULL;
 }
 
@@ -119,7 +194,7 @@ deviceData* GetDeviceData(void* dev) {
 		devData = &deviceTable[idx];
 	}
 	else if (deviceCount >= MAX_DEVICE_COUNT - 1) {
-		DbgOut("Out of Device Slot");
+		DbgOut("# OBS_Layer # Out of Device Slot\n");
 	}
 	else {
 
@@ -181,7 +256,7 @@ surfaceData* FindSurfaceData(instanceData* instData, VkSurfaceKHR surface) {
 		return &instData->surfaces[firstFreeSlot];
 	}
 
-	DbgOut("FindSurfaceData failed, no more free slot");
+	DbgOut("# OBS_Layer # FindSurfaceData failed, no more free slot\n");
 	return NULL;
 }
 
@@ -210,7 +285,7 @@ instanceData* GetInstanceData(void* inst) {
 		instData = &instanceTable[idx];
 	}
 	else if (instanceCount >= MAX_INSTANCE_COUNT - 1) {
-		DbgOut("Out of Instance Slot");
+		DbgOut("# OBS_Layer # Out of Instance Slot\n");
 	}
 	else {
 
@@ -295,11 +370,27 @@ VK_LAYER_EXPORT VkResult VKAPI_CALL OBS_CreateInstance(
 
 	PFN_vkCreateInstance createFunc = (PFN_vkCreateInstance)gpa(VK_NULL_HANDLE, "vkCreateInstance");
 
-	VkResult ret = createFunc(pCreateInfo, pAllocator, pInstance);
-
-	if (ret != VK_SUCCESS) {
-		DbgOut("\nCreateInstance forwarding failed");
+	BOOL VK_KHR_external_memory_capabilities_enabled = FALSE;
+	for (uint32_t i = 0; i < pCreateInfo->enabledExtensionCount; ++i) {
+		VK_KHR_external_memory_capabilities_enabled |= (0 == strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME));
 	}
+
+
+	if (!VK_KHR_external_memory_capabilities_enabled) {
+		uint32_t extCount = pCreateInfo->enabledExtensionCount;
+
+		const char** extNames = (const char**)alloca(sizeof(const char*) * (extCount+1));
+		for (uint32_t i = 0; i < extCount; ++i) {
+			extNames[i] = (const char*)(pCreateInfo->ppEnabledExtensionNames[i]);
+		}
+		extNames[extCount++] = VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME;
+		VkInstanceCreateInfo* createInfo = (VkInstanceCreateInfo*)(pCreateInfo); //remove createInfo constness
+		createInfo->enabledExtensionCount = extCount;
+		createInfo->ppEnabledExtensionNames = extNames;
+	}
+
+	VkResult res = createFunc(pCreateInfo, pAllocator, pInstance);
+	DbgOutRes("# OBS_Layer # CreateInstance %s\n", res);
 	
 	VkLayerInstanceDispatchTable* dispatchTable = GetInstanceDispatchTable(TOKEY(*pInstance));
 
@@ -313,7 +404,7 @@ VK_LAYER_EXPORT VkResult VKAPI_CALL OBS_CreateInstance(
 	dispatchTable->GetPhysicalDeviceQueueFamilyProperties = (PFN_vkGetPhysicalDeviceQueueFamilyProperties)gpa(*pInstance, "vkGetPhysicalDeviceQueueFamilyProperties");
 	dispatchTable->GetPhysicalDeviceMemoryProperties = (PFN_vkGetPhysicalDeviceMemoryProperties)gpa(*pInstance, "vkGetPhysicalDeviceMemoryProperties");
 
-	return VK_SUCCESS;
+	return res;
 }
 
 VK_LAYER_EXPORT VkResult VKAPI_CALL OBS_DestroyInstance(VkInstance instance,
@@ -338,12 +429,16 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_EnumerateInstanceLayerProperties(uint32_t* pP
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL OBS_EnumerateInstanceExtensionProperties(const char* pLayerName, uint32_t* pPropertyCount, VkExtensionProperties* pProperties) {
-	pProperties; //unused
 	if (pLayerName == NULL || strcmp(pLayerName, "VK_LAYER_OBS_HOOK"))
 		return VK_ERROR_LAYER_NOT_PRESENT;
 
-	// don't expose any extensions
-	if (pPropertyCount) *pPropertyCount = 0;
+	if (pPropertyCount) *pPropertyCount = 1;
+
+	if (pProperties) {
+		strcpy(pProperties[0].extensionName, VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
+		pProperties[0].specVersion = VK_API_VERSION_1_1;
+	}
+
 	return VK_SUCCESS;
 }
 
@@ -358,26 +453,20 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_EnumerateDeviceExtensionProperties(VkPhysical
 		return disp->EnumerateDeviceExtensionProperties(physicalDevice, pLayerName, pPropertyCount, pProperties);
 	}
 
-	// expose external memory extension --> VK_KHR_external_memory
-	// even if pLayerName is never called with "VK_LAYER_OBS_HOOK"
-	// --> https://github.com/KhronosGroup/Vulkan-Loader/issues/133
 	if (pPropertyCount) *pPropertyCount = 2;
 
 	if (pProperties)
 	{
 		strcpy(pProperties[0].extensionName, VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
 		pProperties[0].specVersion = VK_API_VERSION_1_1;
-		strcpy(pProperties[1].extensionName, VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
+		strcpy(pProperties[1].extensionName, VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
 		pProperties[1].specVersion = VK_API_VERSION_1_1;
 	}
-		
 
 	return VK_SUCCESS;
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL OBS_EnumeratePhysicalDevices(VkInstance instance, uint32_t* pPhysicalDeviceCount, VkPhysicalDevice* pPhysicalDevices){
-	DbgOut("\n##### EnumeratePhysicalDevices #####");
-
 	instanceData* instData = GetInstanceData(TOKEY(instance));
 	VkLayerInstanceDispatchTable* dispatchTable = &instData->dispatchTable;
 
@@ -388,7 +477,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_EnumeratePhysicalDevices(VkInstance instance,
 		uint32_t PhyDevCount = *pPhysicalDeviceCount;
 		if (PhyDevCount >= MAX_PHYSICALDEVICE_COUNT) {
 			PhyDevCount = MAX_PHYSICALDEVICE_COUNT;
-			DbgOut2("\nOut of physical device storage for instance %p, clamping to %d", instance, PhyDevCount);
+			DbgOut2("# OBS_Layer # Out of physical device storage for instance %p, clamping to %d\n", instance, PhyDevCount);
 		}
 		instData->physicalDeviceCount = PhyDevCount;
 
@@ -409,7 +498,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 // ensure needed device extension are available and enabled
 #pragma region(needed device extention)
 	BOOL VK_KHR_external_memory_win32_available = FALSE;
-	//BOOL VK_KHR_external_memory_capabilities_available = FALSE;
+	BOOL VK_KHR_external_memory_available = FALSE;
 	{
 		uint32_t extCount = 0;
 		instdisp->EnumerateDeviceExtensionProperties(physicalDevice, NULL, &extCount, NULL);
@@ -419,24 +508,23 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 		for (uint32_t e = 0; e < extCount; e++)
 		{
 			VK_KHR_external_memory_win32_available |= (0 == strcmp(props[e].extensionName, VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME));
-			//VK_KHR_external_memory_capabilities_available |= (0 == strcmp(props[e].extensionName, VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME));
+			VK_KHR_external_memory_available |= (0 == strcmp(props[e].extensionName, VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME));
 		}
 	}
 
-	//if (VK_KHR_external_memory_win32_available && VK_KHR_external_memory_capabilities_available) {
-	if (VK_KHR_external_memory_win32_available) {
+	if (VK_KHR_external_memory_win32_available && VK_KHR_external_memory_available) {
 			// add the exentions we need if not already there
 		BOOL found_VK_KHR_external_memory_win32 = FALSE;
-		//BOOL found_VK_KHR_external_memory_capabilities = FALSE;
+		BOOL found_VK_KHR_external_memory = FALSE;
 
 		for (uint32_t i = 0; i < pCreateInfo->enabledExtensionCount; ++i) {
 			found_VK_KHR_external_memory_win32 |= (0 == strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME));
-			//found_VK_KHR_external_memory_capabilities |= (0 == strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME));
+			found_VK_KHR_external_memory |= (0 == strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME));
 		}
 
 		uint32_t extIndex = pCreateInfo->enabledExtensionCount;
 		createInfo->enabledExtensionCount += found_VK_KHR_external_memory_win32 ? 0 : 1;
-		//createInfo->enabledExtensionCount += found_VK_KHR_external_memory_capabilities ? 0 : 1;
+		createInfo->enabledExtensionCount += found_VK_KHR_external_memory ? 0 : 1;
 
 		const char** extNames = (const char**)alloca(sizeof(const char*) * pCreateInfo->enabledExtensionCount);
 		for (uint32_t i = 0; i < extIndex; ++i) {
@@ -446,13 +534,13 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 		if (!found_VK_KHR_external_memory_win32) {
 			extNames[extIndex++] = (const char*)&VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME;
 		}
-		//if (!found_VK_KHR_external_memory_capabilities) {
-		//	extNames[extIndex++] = (const char*)&VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME;
-		//}
+		if (!found_VK_KHR_external_memory) {
+			extNames[extIndex++] = (const char*)&VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME;
+		}
 		createInfo->ppEnabledExtensionNames = extNames;
 	}
 	else {
-		DbgOut("\nNeeded device extensions are not available");
+		DbgOut("# OBS_Layer # Needed device extensions are not available\n");
 	}
 #pragma endregion
 
@@ -561,6 +649,9 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 	// store the physicalDevice on which device is created
 	devData->physicalDevice = physicalDevice;
 
+	// store the device
+	devData->device = *pDevice;
+
 	// feed our dispatch table for the functions we need (function pointer into the next layer)
 	dispatchTable->GetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)gdpa(*pDevice, "vkGetDeviceProcAddr");
 	dispatchTable->DestroyDevice = (PFN_vkDestroyDevice)gdpa(*pDevice, "vkDestroyDevice");
@@ -584,6 +675,34 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 	dispatchTable->BeginCommandBuffer = (PFN_vkBeginCommandBuffer)gdpa(*pDevice, "vkBeginCommandBuffer");
 	dispatchTable->EndCommandBuffer = (PFN_vkEndCommandBuffer)gdpa(*pDevice, "vkEndCommandBuffer");
 	dispatchTable->CmdCopyImage = (PFN_vkCmdCopyImage)gdpa(*pDevice, "vkCmdCopyImage");
+	dispatchTable->CmdPipelineBarrier = (PFN_vkCmdPipelineBarrier)gdpa(*pDevice, "vkCmdPipelineBarrier");
+	
+
+	dispatchTable->CreateCommandPool = (PFN_vkCreateCommandPool)gdpa(*pDevice, "vkCreateCommandPool");
+	dispatchTable->AllocateCommandBuffers = (PFN_vkAllocateCommandBuffers)gdpa(*pDevice, "vkAllocateCommandBuffers");
+
+	if (devData->cmdPool == VK_NULL_HANDLE)
+	{
+		VkCommandPoolCreateInfo poolInfo;
+		poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		poolInfo.pNext = NULL;
+		poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		poolInfo.queueFamilyIndex = qFamilyIdx;
+
+		VkResult res = dispatchTable->CreateCommandPool(*pDevice, &poolInfo, NULL, &devData->cmdPool);
+		DbgOutRes("# OBS_Layer # CreateCommandPool %s\n", res);
+
+		VkCommandBufferAllocateInfo cmdInfo;
+		cmdInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		cmdInfo.pNext = NULL;
+		cmdInfo.commandPool = devData->cmdPool;
+		cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		cmdInfo.commandBufferCount = 1;
+
+		res = dispatchTable->AllocateCommandBuffers(*pDevice, &cmdInfo, &devData->cmdBuffer);
+		DbgOutRes("# OBS_Layer # AllocateCommandBuffers %s\n", res);
+	}
+
 
 	return VK_SUCCESS;
 }
@@ -594,11 +713,13 @@ VKAPI_ATTR void VKAPI_CALL OBS_DestroyDevice(VkDevice device, const VkAllocation
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSwapchainKHR* pSwapchain) {
-	DbgOut("\n##### CreateSwapchainKHR #####");
 	deviceData* devData = GetDeviceData(TOKEY(device));
 	VkLayerDispatchTable* dispatchTable = &devData->dispatchTable;
 
 	swapchainData* swchData = FindSwapchainData(devData, pCreateInfo->surface);
+
+	swchData->imageExtent = pCreateInfo->imageExtent;
+	swchData->imageFormat = pCreateInfo->imageFormat;
 
 	VkExternalMemoryImageCreateInfo extMemImageCreateInfo;
 	extMemImageCreateInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
@@ -655,12 +776,16 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(VkDevice device, const VkS
 	memAllocInfo.pNext = &expMemAllocInfo;
 	memAllocInfo.allocationSize = memRequirements.size;
 	memAllocInfo.memoryTypeIndex = memoryTypeIndex;
+	VkResult res;
+	res = dispatchTable->AllocateMemory(device, &memAllocInfo, NULL, &swchData->exportedImagesMemory[0]);
+	DbgOutRes("# OBS_Layer # AllocateMemory %s\n", res);
+	res = dispatchTable->AllocateMemory(device, &memAllocInfo, NULL, &swchData->exportedImagesMemory[1]);
+	DbgOutRes("# OBS_Layer # AllocateMemory %s\n", res);
 
-	dispatchTable->AllocateMemory(device, &memAllocInfo, NULL, &swchData->exportedImagesMemory[0]);
-	dispatchTable->AllocateMemory(device, &memAllocInfo, NULL, &swchData->exportedImagesMemory[1]);
-
-	dispatchTable->BindImageMemory(device, swchData->exportedImages[0], swchData->exportedImagesMemory[0], 0);
-	dispatchTable->BindImageMemory(device, swchData->exportedImages[1], swchData->exportedImagesMemory[1], 0);
+	res = dispatchTable->BindImageMemory(device, swchData->exportedImages[0], swchData->exportedImagesMemory[0], 0);
+	DbgOutRes("# OBS_Layer # BindImageMemory %s\n", res);
+	res = dispatchTable->BindImageMemory(device, swchData->exportedImages[1], swchData->exportedImagesMemory[1], 0);
+	DbgOutRes("# OBS_Layer # BindImageMemory %s\n", res);
 
 	swchData->getWin32HandleInfo[0].sType = VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
 	swchData->getWin32HandleInfo[0].pNext = NULL;
@@ -672,10 +797,15 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(VkDevice device, const VkS
 	swchData->getWin32HandleInfo[1].memory = swchData->exportedImagesMemory[1];
 	swchData->getWin32HandleInfo[1].handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
 
-	dispatchTable->GetMemoryWin32HandleKHR(device, &swchData->getWin32HandleInfo[0], &swchData->handle[0]);
-	dispatchTable->GetMemoryWin32HandleKHR(device, &swchData->getWin32HandleInfo[1], &swchData->handle[1]);
+	res = dispatchTable->GetMemoryWin32HandleKHR(device, &swchData->getWin32HandleInfo[0], &swchData->handle[0]);
+	DbgOutRes("# OBS_Layer # GetMemoryWin32HandleKHR %s\n", res);
+	res = dispatchTable->GetMemoryWin32HandleKHR(device, &swchData->getWin32HandleInfo[1], &swchData->handle[1]);
+	DbgOutRes("# OBS_Layer # GetMemoryWin32HandleKHR %s\n", res);
 
-	VkResult res = dispatchTable->CreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
+	VkSwapchainCreateInfoKHR* swpchainCreateInfo = (VkSwapchainCreateInfoKHR*)pCreateInfo;
+	swpchainCreateInfo->imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+
+	res = dispatchTable->CreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
 
 	swchData->swapchain = *pSwapchain;
 
@@ -702,10 +832,77 @@ VKAPI_ATTR void VKAPI_CALL OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainK
 	dispatchTable->DestroySwapchainKHR(device, swapchain, pAllocator);
 }
 
+
 VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
 {
-	VkLayerDispatchTable* dispatchTable = GetDeviceDispatchTable(TOKEY(queue));
-	DbgOut("\n##### QueuePresentKHR #####");
+
+	deviceData* devData = GetDeviceData(TOKEY(queue));
+	VkLayerDispatchTable* dispatchTable = &devData->dispatchTable;
+	DbgOut2("# OBS_Layer # QueuePresentKHR called on devicekey %p, swapchaincount %d\n", dispatchTable, pPresentInfo->swapchainCount);
+/*
+	for (uint32_t i = 0; i < pPresentInfo->swapchainCount; ++i) {
+
+
+		swapchainData* swpchData = GetSwapchainData(devData, pPresentInfo->pSwapchains[i]);
+
+		VkCommandBufferBeginInfo beginInfo;
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.pNext = NULL;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		beginInfo.pInheritanceInfo = NULL;
+
+		// do image copy
+		dispatchTable->BeginCommandBuffer(devData->cmdBuffer, &beginInfo);
+
+		VkImageCopy cpy;
+		cpy.srcSubresource.aspectMask		= VK_IMAGE_ASPECT_COLOR_BIT;
+		cpy.srcSubresource.mipLevel		= 0;
+		cpy.srcSubresource.baseArrayLayer	= 0;
+		cpy.srcSubresource.layerCount		= 1;
+		cpy.srcOffset.x				= 0;
+		cpy.srcOffset.y				= 0;
+		cpy.srcOffset.z				= 0;
+		cpy.dstSubresource.aspectMask		= VK_IMAGE_ASPECT_COLOR_BIT;
+		cpy.dstSubresource.mipLevel		= 0;
+		cpy.dstSubresource.baseArrayLayer	= 0;
+		cpy.dstSubresource.layerCount		= 1;
+		cpy.dstOffset.x				= 0;
+		cpy.dstOffset.y				= 0;
+		cpy.dstOffset.z				= 0;
+		cpy.extent.width			= swpchData->imageExtent.width;
+		cpy.extent.height			= swpchData->imageExtent.height;
+		cpy.extent.depth			= 1;
+
+		uint32_t pSwapchainImageCount = 0;
+		VkImage pSwapchainImages[MAX_IMAGES_PER_SWAPCHAIN];
+		dispatchTable->GetSwapchainImagesKHR(devData->device, pPresentInfo->pSwapchains[i], &pSwapchainImageCount, NULL);
+
+		if (pSwapchainImageCount > 0) {
+			pSwapchainImageCount = (pSwapchainImageCount < MAX_IMAGES_PER_SWAPCHAIN) ? pSwapchainImageCount : MAX_IMAGES_PER_SWAPCHAIN;
+			dispatchTable->GetSwapchainImagesKHR(devData->device, pPresentInfo->pSwapchains[i], &pSwapchainImageCount, pSwapchainImages);
+		}
+		
+		VkImage currentBackBuffer = pSwapchainImages[pPresentInfo->pImageIndices[i]];
+
+		VkImageMemoryBarrier imBarrier;
+		imBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		imBarrier.pNext = NULL;
+		imBarrier.srcAccessMask = 0;
+		imBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		imBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		imBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		imBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		imBarrier.dstQueueFamilyIndex = devData->queueFamilyIdx;
+		imBarrier.image = currentBackBuffer;
+		imBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imBarrier.subresourceRange.baseMipLevel = 0;
+		imBarrier.subresourceRange.levelCount = 1;
+		imBarrier.subresourceRange.baseArrayLayer = 0;
+		imBarrier.subresourceRange.layerCount = 1;
+
+		dispatchTable->CmdPipelineBarrier(devData->cmdBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &imBarrier);
+	}
+	*/
 	return dispatchTable->QueuePresentKHR(queue, pPresentInfo);
 }
 
@@ -719,7 +916,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_GetSwapchainImagesKHR(VkDevice device, VkSwap
 VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateWin32SurfaceKHR(VkInstance instance, const VkWin32SurfaceCreateInfoKHR* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface)
 {
 	instanceData* instData = GetInstanceData(TOKEY(instance));
-	DbgOut("\n##### CreateWin32SurfaceKHR #####");
+	DbgOut("# OBS_Layer # CreateWin32SurfaceKHR\n");
 
 	VkResult res = instData->dispatchTable.CreateWin32SurfaceKHR(instance, pCreateInfo, pAllocator, pSurface);
 
@@ -734,7 +931,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateWin32SurfaceKHR(VkInstance instance, co
 #define GETPROCADDR(func) if(!strcmp(funcName, "vk" #func)) return (PFN_vkVoidFunction)&OBS_##func;
 
 VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL OBS_GetDeviceProcAddr(VkDevice dev, const char *funcName) {
-	DbgOut2("\n##### vkGetDeviceProcAddr [%s] called on device %p #####", funcName, dev);
+	DbgOutProcAddr("# OBS_Layer # vkGetDeviceProcAddr [%s] called on device %p\n", funcName, dev);
 	GETPROCADDR(GetDeviceProcAddr);
 	GETPROCADDR(EnumerateDeviceExtensionProperties);
 	GETPROCADDR(CreateDevice);
@@ -752,7 +949,7 @@ VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL OBS_GetDeviceProcAddr(V
 
 
 VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL OBS_GetInstanceProcAddr(VkInstance instance, const char *funcName) {
-	DbgOut2("\n##### vkGetInstanceProcAddr [%s] called on instance %p #####", funcName, instance);
+	DbgOutProcAddr("# OBS_Layer # vkGetInstanceProcAddr [%s] called on instance %p\n", funcName, instance);
 	// instance chain functions we intercept
 	GETPROCADDR(GetInstanceProcAddr);
 	GETPROCADDR(EnumerateInstanceLayerProperties);
@@ -793,7 +990,7 @@ bool hook_vulkan(void) {
 
 	static bool hookingVulkan = true;
 	while (hookingVulkan) {
-		DbgOut("hooking vulkan");
+		DbgOut("# OBS_Layer # hooking vulkan\n");
 		Sleep(1000);
 	}
 
