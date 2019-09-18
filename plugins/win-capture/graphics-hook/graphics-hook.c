@@ -314,7 +314,14 @@ static inline bool attempt_hook(void)
 	static bool gl_hooked = false;
 #if COMPILE_VULKAN_HOOK
 	static bool vulkan_hooked = false;
+	if (!vulkan_hooked) {
+		vulkan_hooked = hook_vulkan();
+		if (vulkan_hooked) {
+			return true;
+		}
+	}
 #endif //COMPILE_VULKAN_HOOK
+
 	if (!d3d9_hooked) {
 		if (!d3d9_hookable()) {
 			DbgOut("no D3D9 hook address found!\n");
@@ -358,15 +365,6 @@ static inline bool attempt_hook(void)
 			}
 		}
 	}
-
-#if COMPILE_VULKAN_HOOK
-	if (!vulkan_hooked) {
-		vulkan_hooked = hook_vulkan();
-		if (vulkan_hooked) {
-			return true;
-		}
-	}
-#endif //COMPILE_VULKAN_HOOK
 	/*if (!ddraw_hooked) {
 		if (!ddraw_hookable()) {
 			ddraw_hooked = true;

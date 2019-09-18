@@ -1,11 +1,11 @@
-#include "graphics-hook-config.h"
+#include <windows.h>
+#include "graphics-hook.h"
 
 #if COMPILE_VULKAN_HOOK
 
 #define VK_USE_PLATFORM_WIN32_KHR
 
 #include <malloc.h>
-#include <windows.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_layer.h>
 #undef VK_LAYER_EXPORT
@@ -109,7 +109,6 @@ const char * VkResultString(VkResult result) {
 #define MAX_PHYSICALDEVICE_COUNT 16
 #define MAX_IMAGES_PER_SWAPCHAIN 16
 
-
 static BOOL initialized = FALSE;
 CRITICAL_SECTION mutex;
 
@@ -125,6 +124,8 @@ typedef struct swapchainData {
 	VkDeviceMemory			exportedImageMemory;
 	VkMemoryGetWin32HandleInfoKHR	getWin32HandleInfo;
 	HANDLE				handle;
+	struct shtex_data *		shtex_info;
+	BOOL				sharedTextureCaptured;
 }swapchainData;
 
 typedef struct deviceData {
@@ -716,6 +717,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(VkDevice device, const VkS
 
 	swapchainData* swchData = GetNewSwapchainData(devData);
 
+	swchData->surface = pCreateInfo->surface;
 	swchData->imageExtent = pCreateInfo->imageExtent;
 	swchData->imageFormat = pCreateInfo->imageFormat;
 	
@@ -829,108 +831,123 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresen
 
 		swapchainData* swpchData = GetSwapchainData(devData, pPresentInfo->pSwapchains[i]);
 
-		VkCommandBufferBeginInfo beginInfo;
-		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		beginInfo.pNext = NULL;
-		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-		beginInfo.pInheritanceInfo = NULL;
-
-		// do image copy
-		res = dispatchTable->BeginCommandBuffer(devData->cmdBuffer, &beginInfo);
-		DbgOutRes("# OBS_Layer # BeginCommandBuffer %s\n", res);
-
-		VkImageCopy cpy;
-		cpy.srcSubresource.aspectMask		= VK_IMAGE_ASPECT_COLOR_BIT;
-		cpy.srcSubresource.mipLevel		= 0;
-		cpy.srcSubresource.baseArrayLayer	= 0;
-		cpy.srcSubresource.layerCount		= 1;
-		cpy.srcOffset.x				= 0;
-		cpy.srcOffset.y				= 0;
-		cpy.srcOffset.z				= 0;
-		cpy.dstSubresource.aspectMask		= VK_IMAGE_ASPECT_COLOR_BIT;
-		cpy.dstSubresource.mipLevel		= 0;
-		cpy.dstSubresource.baseArrayLayer	= 0;
-		cpy.dstSubresource.layerCount		= 1;
-		cpy.dstOffset.x				= 0;
-		cpy.dstOffset.y				= 0;
-		cpy.dstOffset.z				= 0;
-		cpy.extent.width			= swpchData->imageExtent.width;
-		cpy.extent.height			= swpchData->imageExtent.height;
-		cpy.extent.depth			= 1;
-
-		uint32_t pSwapchainImageCount = 0;
-		VkImage pSwapchainImages[MAX_IMAGES_PER_SWAPCHAIN];
-		res = dispatchTable->GetSwapchainImagesKHR(devData->device, pPresentInfo->pSwapchains[i], &pSwapchainImageCount, NULL);
-		DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
-
-		if (pSwapchainImageCount > 0) {
-			pSwapchainImageCount = (pSwapchainImageCount < MAX_IMAGES_PER_SWAPCHAIN) ? pSwapchainImageCount : MAX_IMAGES_PER_SWAPCHAIN;
-			res = dispatchTable->GetSwapchainImagesKHR(devData->device, pPresentInfo->pSwapchains[i], &pSwapchainImageCount, pSwapchainImages);
-			DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
+		if (!swpchData->sharedTextureCaptured) {
+			HWND window = NULL;
+			for (int inst = 0; inst < instanceCount; ++inst) {
+				surfaceData* surfData = FindSurfaceData(&instanceTable[inst], swpchData->surface);
+				if (surfData != NULL && surfData->surface == swpchData->surface) {
+					window = surfData->hwnd;
+				}
+			}
+			if (window != NULL) {
+				swpchData->sharedTextureCaptured = capture_init_shtex(&swpchData->shtex_info, window, 0, 0, 0, 0
+					, (uint32_t)swpchData->imageFormat, FALSE, (uintptr_t)swpchData->handle);
+			}
 		}
-		
-		VkImage currentBackBuffer = pSwapchainImages[pPresentInfo->pImageIndices[i]];
-	//*/
-		// with resource transition
-		// transition currentBackBuffer to transfer source state
-		VkImageMemoryBarrier imBarrier;
-		imBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		imBarrier.pNext = NULL;
-		imBarrier.srcAccessMask = 0;
-		imBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-		imBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-		imBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-		imBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imBarrier.dstQueueFamilyIndex = devData->queueFamilyIdx;
-		imBarrier.image = currentBackBuffer;
-		imBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		imBarrier.subresourceRange.baseMipLevel = 0;
-		imBarrier.subresourceRange.levelCount = 1;
-		imBarrier.subresourceRange.baseArrayLayer = 0;
-		imBarrier.subresourceRange.layerCount = 1;
 
-		dispatchTable->CmdPipelineBarrier(devData->cmdBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &imBarrier);
+		if (swpchData->sharedTextureCaptured) {
+			VkCommandBufferBeginInfo beginInfo;
+			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			beginInfo.pNext = NULL;
+			beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+			beginInfo.pInheritanceInfo = NULL;
 
-		// copy currentBackBuffer's content to our interop image
-		dispatchTable->CmdCopyImage(devData->cmdBuffer, currentBackBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swpchData->exportedImage, VK_IMAGE_LAYOUT_UNDEFINED, 1, &cpy);
+			// do image copy
+			res = dispatchTable->BeginCommandBuffer(devData->cmdBuffer, &beginInfo);
+			DbgOutRes("# OBS_Layer # BeginCommandBuffer %s\n", res);
 
-		// transition currentBackBuffer to present source state
-		imBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		imBarrier.pNext = NULL;
-		imBarrier.srcAccessMask = 0;
-		imBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-		imBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-		imBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-		imBarrier.srcQueueFamilyIndex = devData->queueFamilyIdx;
-		imBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imBarrier.image = currentBackBuffer;
-		imBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		imBarrier.subresourceRange.baseMipLevel = 0;
-		imBarrier.subresourceRange.levelCount = 1;
-		imBarrier.subresourceRange.baseArrayLayer = 0;
-		imBarrier.subresourceRange.layerCount = 1;
+			VkImageCopy cpy;
+			cpy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			cpy.srcSubresource.mipLevel = 0;
+			cpy.srcSubresource.baseArrayLayer = 0;
+			cpy.srcSubresource.layerCount = 1;
+			cpy.srcOffset.x = 0;
+			cpy.srcOffset.y = 0;
+			cpy.srcOffset.z = 0;
+			cpy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			cpy.dstSubresource.mipLevel = 0;
+			cpy.dstSubresource.baseArrayLayer = 0;
+			cpy.dstSubresource.layerCount = 1;
+			cpy.dstOffset.x = 0;
+			cpy.dstOffset.y = 0;
+			cpy.dstOffset.z = 0;
+			cpy.extent.width = swpchData->imageExtent.width;
+			cpy.extent.height = swpchData->imageExtent.height;
+			cpy.extent.depth = 1;
 
-		dispatchTable->CmdPipelineBarrier(devData->cmdBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &imBarrier);
-	/*/
-		// without resource transition
-		// copy currentBackBuffer's content to our interop image
-		dispatchTable->CmdCopyImage(devData->cmdBuffer, currentBackBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, swpchData->exportedImage, VK_IMAGE_LAYOUT_UNDEFINED, 1, &cpy);
-	//*/
-		VkSubmitInfo submit_info;
-		submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		submit_info.pNext = NULL;
-		submit_info.waitSemaphoreCount = 0;
-		submit_info.pWaitSemaphores = NULL;
-		submit_info.pWaitDstStageMask = NULL;
-		submit_info.commandBufferCount = 1;
-		submit_info.pCommandBuffers = &devData->cmdBuffer;
-		submit_info.signalSemaphoreCount = 0;
-		submit_info.pSignalSemaphores = NULL;
+			uint32_t pSwapchainImageCount = 0;
+			VkImage pSwapchainImages[MAX_IMAGES_PER_SWAPCHAIN];
+			res = dispatchTable->GetSwapchainImagesKHR(devData->device, pPresentInfo->pSwapchains[i], &pSwapchainImageCount, NULL);
+			DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
+
+			if (pSwapchainImageCount > 0) {
+				pSwapchainImageCount = (pSwapchainImageCount < MAX_IMAGES_PER_SWAPCHAIN) ? pSwapchainImageCount : MAX_IMAGES_PER_SWAPCHAIN;
+				res = dispatchTable->GetSwapchainImagesKHR(devData->device, pPresentInfo->pSwapchains[i], &pSwapchainImageCount, pSwapchainImages);
+				DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
+			}
+
+			VkImage currentBackBuffer = pSwapchainImages[pPresentInfo->pImageIndices[i]];
+		//*/
+			// with resource transition
+			// transition currentBackBuffer to transfer source state
+			VkImageMemoryBarrier imBarrier;
+			imBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			imBarrier.pNext = NULL;
+			imBarrier.srcAccessMask = 0;
+			imBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			imBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+			imBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			imBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imBarrier.dstQueueFamilyIndex = devData->queueFamilyIdx;
+			imBarrier.image = currentBackBuffer;
+			imBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			imBarrier.subresourceRange.baseMipLevel = 0;
+			imBarrier.subresourceRange.levelCount = 1;
+			imBarrier.subresourceRange.baseArrayLayer = 0;
+			imBarrier.subresourceRange.layerCount = 1;
+
+			dispatchTable->CmdPipelineBarrier(devData->cmdBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &imBarrier);
+
+			// copy currentBackBuffer's content to our interop image
+			dispatchTable->CmdCopyImage(devData->cmdBuffer, currentBackBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swpchData->exportedImage, VK_IMAGE_LAYOUT_UNDEFINED, 1, &cpy);
+
+			// transition currentBackBuffer to present source state
+			imBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			imBarrier.pNext = NULL;
+			imBarrier.srcAccessMask = 0;
+			imBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			imBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			imBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+			imBarrier.srcQueueFamilyIndex = devData->queueFamilyIdx;
+			imBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imBarrier.image = currentBackBuffer;
+			imBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			imBarrier.subresourceRange.baseMipLevel = 0;
+			imBarrier.subresourceRange.levelCount = 1;
+			imBarrier.subresourceRange.baseArrayLayer = 0;
+			imBarrier.subresourceRange.layerCount = 1;
+
+			dispatchTable->CmdPipelineBarrier(devData->cmdBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &imBarrier);
+		/*/
+			// without resource transition
+			// copy currentBackBuffer's content to our interop image
+			dispatchTable->CmdCopyImage(devData->cmdBuffer, currentBackBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, swpchData->exportedImage, VK_IMAGE_LAYOUT_UNDEFINED, 1, &cpy);
+		//*/
+			VkSubmitInfo submit_info;
+			submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			submit_info.pNext = NULL;
+			submit_info.waitSemaphoreCount = 0;
+			submit_info.pWaitSemaphores = NULL;
+			submit_info.pWaitDstStageMask = NULL;
+			submit_info.commandBufferCount = 1;
+			submit_info.pCommandBuffers = &devData->cmdBuffer;
+			submit_info.signalSemaphoreCount = 0;
+			submit_info.pSignalSemaphores = NULL;
 
 
-		res = dispatchTable->QueueSubmit(devData->queue, 1, &submit_info, VK_NULL_HANDLE);
-		DbgOutRes("# OBS_Layer # QueueSubmit %s\n", res);
-
+			res = dispatchTable->QueueSubmit(devData->queue, 1, &submit_info, VK_NULL_HANDLE);
+			DbgOutRes("# OBS_Layer # QueueSubmit %s\n", res);
+		}
 	}
 	
 	return dispatchTable->QueuePresentKHR(queue, pPresentInfo);
@@ -1015,19 +1032,14 @@ VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL OBS_NegotiateLoaderLayerInterface
 
 
 #include "graphics-hook.h"
+
 bool hook_vulkan(void) {
-
-
-	static bool hookingVulkan = true;
-	while (hookingVulkan) {
-		DbgOut("# OBS_Layer # hooking vulkan\n");
-		Sleep(1000);
+	if (instanceCount > 0) {
+		hlog("Hooked Vulkan");
+		return true;
+	} else {
+		return true;
 	}
-
-
-	return true;
 }
-
-
 
 #endif
