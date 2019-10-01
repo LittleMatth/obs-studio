@@ -1402,12 +1402,12 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateWin32SurfaceKHR(VkInstance instance, co
 	DbgOut("# OBS_Layer # CreateWin32SurfaceKHR\n");
 
 	VkResult res = instData->dispatchTable.CreateWin32SurfaceKHR(instance, pCreateInfo, pAllocator, pSurface);
+	if (NULL != pSurface && VK_NULL_HANDLE != *pSurface) {
+		surfaceData* surfData = FindSurfaceData(instData, *pSurface);
 
-	surfaceData* surfData = FindSurfaceData(instData, *pSurface);
-
-	surfData->hinstance = pCreateInfo->hinstance;
-	surfData->hwnd = pCreateInfo->hwnd;
-
+		surfData->hinstance = pCreateInfo->hinstance;
+		surfData->hwnd = pCreateInfo->hwnd;
+	}
 	return res;
 }
 
