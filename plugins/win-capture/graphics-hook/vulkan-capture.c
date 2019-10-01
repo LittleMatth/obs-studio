@@ -233,13 +233,14 @@ void RemoveDevice(void* dev) {
 			devData->dispatchTable.FreeMemory(devData->device, swchData->exportedImageMemory, NULL);
 
 		swchData->handle = INVALID_HANDLE_VALUE;
-
 		swchData->swapchain = VK_NULL_HANDLE;
+		swchData->surface = NULL;
 
 		if (swchData->d3d11_tex)
 			ID3D11Resource_Release(swchData->d3d11_tex);
-	}
 
+		swchData->sharedTextureCaptured = 0;
+	}
 
 	if (devData->d3d11_context)
 		ID3D11DeviceContext_Release(devData->d3d11_context);
@@ -247,8 +248,6 @@ void RemoveDevice(void* dev) {
 		ID3D11Device_Release(devData->d3d11_device);
 	if (devData->dxgi_swap)
 		IDXGISwapChain_Release(devData->dxgi_swap);
-
-
 
 	if (idx > 0 && idx < deviceCount - 1) { //not the last, move the last at this new location
 		devices[idx] = devices[deviceCount - 1];
@@ -1087,13 +1086,11 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 
 	dispatchTable->AllocateMemory = (PFN_vkAllocateMemory)gdpa(*pDevice, "vkAllocateMemory");
 	dispatchTable->FreeMemory = (PFN_vkFreeMemory)gdpa(*pDevice, "vkFreeMemory");
-	dispatchTable->MapMemory = (PFN_vkMapMemory)gdpa(*pDevice, "vkMapMemory");
 	dispatchTable->BindImageMemory = (PFN_vkBindImageMemory)gdpa(*pDevice, "vkBindImageMemory");
 	dispatchTable->BindImageMemory2KHR = (PFN_vkBindImageMemory2KHR)gdpa(*pDevice, "vkBindImageMemory2KHR");
 
 	dispatchTable->GetSwapchainImagesKHR = (PFN_vkGetSwapchainImagesKHR)gdpa(*pDevice, "vkGetSwapchainImagesKHR");
 
-	dispatchTable->GetMemoryWin32HandleKHR = (PFN_vkGetMemoryWin32HandleKHR)gdpa(*pDevice, "vkGetMemoryWin32HandleKHR");
 	dispatchTable->CreateImage = (PFN_vkCreateImage)gdpa(*pDevice, "vkCreateImage");
 	dispatchTable->DestroyImage = (PFN_vkDestroyImage)gdpa(*pDevice, "vkDestroyImage");
 	dispatchTable->GetImageMemoryRequirements = (PFN_vkGetImageMemoryRequirements)gdpa(*pDevice, "vkGetImageMemoryRequirements");
@@ -1193,7 +1190,6 @@ VKAPI_ATTR void VKAPI_CALL OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainK
 			ID3D11Resource_Release(swchData->d3d11_tex);
 
 		swchData->sharedTextureCaptured = 0;
-
 	}
 	dispatchTable->DestroySwapchainKHR(device, swapchain, pAllocator);
 }
