@@ -59,9 +59,6 @@
                "entrypoints": ["OBS_BindMem2Begin", "OBS_BindMem2End"]
            }
        ],
-	   "enable_environment": {
-		  "ENABLE_VULKAN_OBS_CAPTURE": "1"
-		},
 		"disable_environment": {
 		  "DISABLE_VULKAN_OBS_CAPTURE": "1"
 		}

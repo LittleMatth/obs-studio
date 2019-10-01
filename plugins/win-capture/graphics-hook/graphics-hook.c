@@ -793,6 +793,9 @@ void capture_free(void)
 	active = false;
 }
 
+BOOL Init_VulkanLayer();
+BOOL Shutdown_VulkanLayer();
+
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID unused1)
 {
 	if (reason == DLL_PROCESS_ATTACH) {
