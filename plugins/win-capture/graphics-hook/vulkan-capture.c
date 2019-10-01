@@ -23,7 +23,7 @@
 #include <d3d11.h>
 
 
-#define DEBUG_PRINT
+//#define DEBUG_PRINT
 //#define DEBUG_PRINT_PROCADDR
 
 #ifdef DEBUG_PRINT
@@ -129,7 +129,6 @@ typedef struct swapchainData {
 	VkSurfaceKHR			surface;
 	VkImage				exportedImage;
 	VkDeviceMemory			exportedImageMemory;
-	VkMemoryGetWin32HandleInfoKHR	getWin32HandleInfo;
 	HANDLE				handle;
 	struct shtex_data *		shtex_info;
 	ID3D11Texture2D *		d3d11_tex;
@@ -480,16 +479,8 @@ static inline bool vk_shtex_init_d3d11_tex(deviceData * dev_data, swapchainData 
 	desc.SampleDesc.Count = 1;
 	desc.SampleDesc.Quality = 0;
 	desc.Usage = D3D11_USAGE_DEFAULT;
-	//desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
+	desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
 	desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-
-	//if (0 != (dev_data->externalMemoryProperties.compatibleHandleTypes & VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT)) {
-	//	desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
-	//} else {
-	desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
-	//}
-
-
 
 	hr = ID3D11Device_CreateTexture2D(dev_data->d3d11_device, &desc, NULL,
 		&swpch_data->d3d11_tex);
@@ -615,7 +606,7 @@ static inline bool vk_shtex_init_vulkan_tex(deviceData * devData, swapchainData 
 	memAllocInfo.memoryTypeIndex = memoryTypeIndex;
 
 	VkMemoryDedicatedAllocateInfoKHR dedicatedAllocationInfo;
-	dedicatedAllocationInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO_KHR;
+	dedicatedAllocationInfo.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
 	dedicatedAllocationInfo.pNext = NULL;
 	dedicatedAllocationInfo.buffer = VK_NULL_HANDLE;
 
@@ -709,19 +700,31 @@ VK_LAYER_EXPORT VkResult VKAPI_CALL OBS_CreateInstance(
 	PFN_vkCreateInstance createFunc = (PFN_vkCreateInstance)gpa(VK_NULL_HANDLE, "vkCreateInstance");
 
 	BOOL VK_KHR_external_memory_capabilities_enabled = FALSE;
+	BOOL VK_KHR_get_physical_device_properties2_enabled = FALSE;
 	for (uint32_t i = 0; i < pCreateInfo->enabledExtensionCount; ++i) {
 		VK_KHR_external_memory_capabilities_enabled |= (0 == strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME));
+		VK_KHR_get_physical_device_properties2_enabled |= (0 == strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME));
 	}
 
-
-	if (!VK_KHR_external_memory_capabilities_enabled) {
+	if (!VK_KHR_external_memory_capabilities_enabled || !VK_KHR_get_physical_device_properties2_enabled) {
 		uint32_t extCount = pCreateInfo->enabledExtensionCount;
+		uint32_t newExtCount = pCreateInfo->enabledExtensionCount;
 
-		const char** extNames = (const char**)alloca(sizeof(const char*) * (extCount+1));
+		newExtCount += VK_KHR_external_memory_capabilities_enabled ? 0 : 1;
+		newExtCount += VK_KHR_get_physical_device_properties2_enabled ? 0 : 1;
+
+
+
+		const char** extNames = (const char**)alloca(sizeof(const char*) * newExtCount);
 		for (uint32_t i = 0; i < extCount; ++i) {
 			extNames[i] = (const char*)(pCreateInfo->ppEnabledExtensionNames[i]);
 		}
-		extNames[extCount++] = VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME;
+		if (!VK_KHR_external_memory_capabilities_enabled) {
+			extNames[extCount++] = VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME;
+		}
+		if (!VK_KHR_get_physical_device_properties2_enabled) {
+			extNames[extCount++] = VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
+		}
 		VkInstanceCreateInfo* createInfo = (VkInstanceCreateInfo*)(pCreateInfo); //remove createInfo constness
 		createInfo->enabledExtensionCount = extCount;
 		createInfo->ppEnabledExtensionNames = extNames;
@@ -1183,11 +1186,13 @@ VKAPI_ATTR void VKAPI_CALL OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainK
 		dispatchTable->FreeMemory(device, swchData->exportedImageMemory, NULL);
 
 		swchData->handle = INVALID_HANDLE_VALUE;
-
 		swchData->swapchain = VK_NULL_HANDLE;
+		swchData->surface = NULL;
 
 		if (swchData->d3d11_tex)
 			ID3D11Resource_Release(swchData->d3d11_tex);
+
+		swchData->sharedTextureCaptured = 0;
 
 	}
 	dispatchTable->DestroySwapchainKHR(device, swapchain, pAllocator);
@@ -1314,7 +1319,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresen
 			dispatchTable->CmdPipelineBarrier(devData->cmdBuffer, srcStages, dstStages, 0, 0, NULL, 0, NULL, 1, &destMemoryBarrier);
 
 			// copy currentBackBuffer's content to our interop image
-			dispatchTable->CmdCopyImage(devData->cmdBuffer, currentBackBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swpchData->exportedImage, VK_IMAGE_LAYOUT_UNDEFINED, 1, &cpy);
+			dispatchTable->CmdCopyImage(devData->cmdBuffer, currentBackBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swpchData->exportedImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cpy);
 
 			// Restore the swap chain image layout to what it was before.
 			// This may not be strictly needed, but it is generally good to restore

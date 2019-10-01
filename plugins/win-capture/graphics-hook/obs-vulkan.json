@@ -20,6 +20,11 @@
                "name": "VK_KHR_external_memory_capabilities",
                "spec_version": "1.1",
                "entrypoints": ["OBS_ExtMemCapBegin", "OBS_ExtMemCapEnd"]
+           },
+           {
+               "name": "VK_KHR_get_physical_device_properties2",
+               "spec_version": "1",
+               "entrypoints": ["OBS_GetPhyDevProp2Begin", "OBS_GetPhyDevProp2End"]
            }
 		],		
        "device_extensions": [
@@ -32,6 +37,26 @@
                "name": "VK_KHR_external_memory",
                "spec_version": "1",
                "entrypoints": ["OBS_ExtMemBegin", "OBS_ExtMemEnd"]
+           },
+           {
+               "name": "VK_KHR_dedicated_allocation",
+               "spec_version": "1",
+               "entrypoints": ["OBS_DedAllocBegin", "OBS_DedAllocEnd"]
+           },
+           {
+               "name": "VK_KHR_win32_keyed_mutex",
+               "spec_version": "1",
+               "entrypoints": ["OBS_W32KMT_Begin", "OBS_W32KMT_End"]
+           },
+           {
+               "name": "VK_KHR_get_memory_requirements2",
+               "spec_version": "1",
+               "entrypoints": ["OBS_GetMemReq2Begin", "OBS_GetMemReq2End"]
+           },
+           {
+               "name": "VK_KHR_bind_memory2",
+               "spec_version": "1",
+               "entrypoints": ["OBS_BindMem2Begin", "OBS_BindMem2End"]
            }
        ],	   "enable_environment": {
 		  "ENABLE_VULKAN_OBS_CAPTURE": "1"
