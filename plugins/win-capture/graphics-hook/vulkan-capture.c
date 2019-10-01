@@ -885,7 +885,6 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 	BOOL VK_KHR_external_memory_win32_available = FALSE;
 	BOOL VK_KHR_external_memory_available = FALSE;
 	BOOL VK_KHR_dedicated_allocation_available = FALSE;
-	BOOL VK_KHR_win32_keyed_mutex_available = FALSE;
 	BOOL VK_KHR_get_memory_requirements2_available = FALSE;
 	BOOL VK_KHR_bind_memory2_available = FALSE;
 	{
@@ -899,7 +898,6 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 			VK_KHR_external_memory_win32_available |= (0 == strcmp(props[e].extensionName, VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME));
 			VK_KHR_external_memory_available |= (0 == strcmp(props[e].extensionName, VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME));
 			VK_KHR_dedicated_allocation_available |= (0 == strcmp(props[e].extensionName, VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME));
-			VK_KHR_win32_keyed_mutex_available |= (0 == strcmp(props[e].extensionName, VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME));
 			VK_KHR_get_memory_requirements2_available |= (0 == strcmp(props[e].extensionName, VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME));
 			VK_KHR_bind_memory2_available |= (0 == strcmp(props[e].extensionName, VK_KHR_BIND_MEMORY_2_EXTENSION_NAME));
 		}
@@ -908,14 +906,12 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 	if (	VK_KHR_external_memory_win32_available
 		&& VK_KHR_external_memory_available
 		&& VK_KHR_dedicated_allocation_available
-		&& VK_KHR_win32_keyed_mutex_available
 		&& VK_KHR_get_memory_requirements2_available
 		&& VK_KHR_bind_memory2_available ) {
 			// add the exentions we need if not already there
 		BOOL found_VK_KHR_external_memory_win32 = FALSE;
 		BOOL found_VK_KHR_external_memory = FALSE;
 		BOOL found_VK_KHR_dedicated_allocation = FALSE;
-		BOOL found_VK_KHR_win32_keyed_mutex = FALSE;
 		BOOL found_VK_KHR_get_memory_requirements2 = FALSE;
 		BOOL found_VK_KHR_bind_memory2 = FALSE;
 
@@ -923,7 +919,6 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 			found_VK_KHR_external_memory_win32 |= (0 == strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME));
 			found_VK_KHR_external_memory |= (0 == strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME));
 			found_VK_KHR_dedicated_allocation |= (0 == strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME));
-			found_VK_KHR_win32_keyed_mutex |= (0 == strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME));
 			found_VK_KHR_get_memory_requirements2 |= (0 == strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME));
 			found_VK_KHR_bind_memory2 |= (0 == strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_BIND_MEMORY_2_EXTENSION_NAME));
 		}
@@ -932,7 +927,6 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 		createInfo->enabledExtensionCount += found_VK_KHR_external_memory_win32 ? 0 : 1;
 		createInfo->enabledExtensionCount += found_VK_KHR_external_memory ? 0 : 1;
 		createInfo->enabledExtensionCount += found_VK_KHR_dedicated_allocation ? 0 : 1;
-		createInfo->enabledExtensionCount += found_VK_KHR_win32_keyed_mutex ? 0 : 1;
 		createInfo->enabledExtensionCount += found_VK_KHR_get_memory_requirements2 ? 0 : 1;
 		createInfo->enabledExtensionCount += found_VK_KHR_bind_memory2 ? 0 : 1;
 
@@ -949,9 +943,6 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 		}
 		if (!found_VK_KHR_dedicated_allocation) {
 			extNames[extIndex++] = (const char*)&VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME;
-		}
-		if (!found_VK_KHR_win32_keyed_mutex) {
-			extNames[extIndex++] = (const char*)&VK_KHR_WIN32_KEYED_MUTEX_EXTENSION_NAME;
 		}
 		if (!found_VK_KHR_get_memory_requirements2) {
 			extNames[extIndex++] = (const char*)&VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME;
@@ -1106,12 +1097,8 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 	dispatchTable->QueueWaitIdle = (PFN_vkQueueWaitIdle)gdpa(*pDevice, "vkQueueWaitIdle");
 	dispatchTable->DeviceWaitIdle = (PFN_vkDeviceWaitIdle)gdpa(*pDevice, "vkDeviceWaitIdle");
 
-
-
 	dispatchTable->CreateCommandPool = (PFN_vkCreateCommandPool)gdpa(*pDevice, "vkCreateCommandPool");
 	dispatchTable->AllocateCommandBuffers = (PFN_vkAllocateCommandBuffers)gdpa(*pDevice, "vkAllocateCommandBuffers");
-
-
 	
 	// retrieve the queue
 	dispatchTable->GetDeviceQueue(*pDevice, qFamilyIdx, 0, &devData->queue);
@@ -1345,28 +1332,6 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresen
 			submit_info.signalSemaphoreCount = 0;
 			submit_info.pSignalSemaphores = NULL;
 
-/*
-			VkWin32KeyedMutexAcquireReleaseInfoKHR keyedMutex;
-			const uint64_t acquireKey = 0;
-			const uint32_t timeout = INFINITE;
-			const uint64_t releaseKey = 0;
-
-			{
-				//synchronization test
-
-				keyedMutex.sType = VK_STRUCTURE_TYPE_WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR;
-				keyedMutex.pNext = NULL;
-				keyedMutex.acquireCount = 1;
-				keyedMutex.pAcquireSyncs = &swpchData->exportedImageMemory;
-				keyedMutex.pAcquireKeys = &acquireKey;
-				keyedMutex.pAcquireTimeouts = &timeout;
-				keyedMutex.releaseCount = 1;
-				keyedMutex.pReleaseSyncs = &swpchData->exportedImageMemory;
-				keyedMutex.pReleaseKeys = &releaseKey;
-
-				submit_info.pNext = &keyedMutex;
-			}
-*/
 			VkFence nullFence = { VK_NULL_HANDLE };
 
 			res = dispatchTable->QueueSubmit(devData->queue, 1, &submit_info, nullFence);
@@ -1377,8 +1342,6 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresen
 
 			res = dispatchTable->DeviceWaitIdle(devData->device);
 			DbgOutRes("# OBS_Layer # DeviceWaitIdle %s\n", res);
-
-
 		}
 	}
 	

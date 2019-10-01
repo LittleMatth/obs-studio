@@ -44,11 +44,6 @@
                "entrypoints": ["OBS_DedAllocBegin", "OBS_DedAllocEnd"]
            },
            {
-               "name": "VK_KHR_win32_keyed_mutex",
-               "spec_version": "1",
-               "entrypoints": ["OBS_W32KMT_Begin", "OBS_W32KMT_End"]
-           },
-           {
                "name": "VK_KHR_get_memory_requirements2",
                "spec_version": "1",
                "entrypoints": ["OBS_GetMemReq2Begin", "OBS_GetMemReq2End"]
