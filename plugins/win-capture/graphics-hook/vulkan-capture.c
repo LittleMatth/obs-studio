@@ -523,7 +523,7 @@ static inline bool vk_shtex_init_vulkan_tex(deviceData * devData, swapchainData 
 	createInfo.pNext = &externalMemoryImageInfo;
 	createInfo.flags = 0;			// VkImageCreateFlags       
 	createInfo.imageType = VK_IMAGE_TYPE_2D;
-	createInfo.format = swpchData->imageFormat; //VK_FORMAT_R8G8B8A8_UNORM;
+	createInfo.format = VK_FORMAT_R8G8B8A8_UNORM; //swpchData->imageFormat;
 	createInfo.extent.width = swpchData->imageExtent.width;
 	createInfo.extent.height = swpchData->imageExtent.height;
 	createInfo.extent.depth = 1;
@@ -862,13 +862,6 @@ BOOL isSharedTextureSupported(VkLayerInstanceDispatchTable* instdisp, VkPhysical
 
 	VkResult result = instdisp->GetPhysicalDeviceImageFormatProperties2KHR(physicalDevice, &imageFormatInfo, &imageFormatProperties);
 
-	//if (VK_FALSE == result)
-	//{
-	//	externalImageFormat.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT_KHR;
-	//
-	//	result = instdisp->GetPhysicalDeviceImageFormatProperties2KHR(physicalDevice, &imageFormatInfo, &imageFormatProperties);
-	//}
-
 	*pExternalMemoryProperties = externalImageFormatProperties.externalMemoryProperties;
 
 	return ((VK_SUCCESS == result) && (pExternalMemoryProperties->externalMemoryFeatures & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT_KHR));
@@ -963,7 +956,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 	uint32_t qFamilyIdx = 0;
 #pragma region(usablequeue)
 	// find or create a usable queue
-	uint32_t queueFamilyPropertyCount;
+	uint32_t queueFamilyPropertyCount = 0;
 	VkQueueFamilyProperties pQueueFamilyProperties[16];
 
 	instdisp->GetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyPropertyCount, NULL);
@@ -1336,12 +1329,6 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresen
 
 			res = dispatchTable->QueueSubmit(devData->queue, 1, &submit_info, nullFence);
 			DbgOutRes("# OBS_Layer # QueueSubmit %s\n", res);
-
-			res = dispatchTable->QueueWaitIdle(devData->queue);
-			DbgOutRes("# OBS_Layer # QueueWaitIdle %s\n", res);
-
-			res = dispatchTable->DeviceWaitIdle(devData->device);
-			DbgOutRes("# OBS_Layer # DeviceWaitIdle %s\n", res);
 		}
 	}
 	
@@ -1413,14 +1400,42 @@ VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL OBS_GetInstanceProcAddr
 	return dispatchTable->GetInstanceProcAddr(instance, funcName);
 }
 
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL OBS_GetPhysicalDeviceProcAddr(VkInstance instance, const char *funcName) {
+
+	VkLayerInstanceDispatchTable *instdt = GetInstanceDispatchTable(TOKEY(instance));
+	if (instdt->GetPhysicalDeviceProcAddr == NULL)
+	{
+		return NULL;
+	}
+
+	return instdt->GetPhysicalDeviceProcAddr(instance, funcName);
+}
+
+
+VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL OBS_layerGetPhysicalDeviceProcAddr(VkInstance instance, const char *funcName) {
+	return OBS_GetPhysicalDeviceProcAddr(instance, funcName);
+}
+
+
+static uint32_t loader_layer_if_version = CURRENT_LOADER_LAYER_INTERFACE_VERSION;
+
 VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL OBS_NegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface *pVersionStruct) {
 
-	pVersionStruct->sType = LAYER_NEGOTIATE_INTERFACE_STRUCT;
-	pVersionStruct->pNext = NULL;
-	pVersionStruct->loaderLayerInterfaceVersion = 2;
-	pVersionStruct->pfnGetInstanceProcAddr = OBS_GetInstanceProcAddr;
-	pVersionStruct->pfnGetDeviceProcAddr = OBS_GetDeviceProcAddr;
-	pVersionStruct->pfnGetPhysicalDeviceProcAddr = NULL;
+	if (pVersionStruct->loaderLayerInterfaceVersion >= 2) {
+		pVersionStruct->sType = LAYER_NEGOTIATE_INTERFACE_STRUCT;
+		pVersionStruct->pNext = NULL;
+		pVersionStruct->pfnGetInstanceProcAddr = OBS_GetInstanceProcAddr;
+		pVersionStruct->pfnGetDeviceProcAddr = OBS_GetDeviceProcAddr;
+		pVersionStruct->pfnGetPhysicalDeviceProcAddr = OBS_layerGetPhysicalDeviceProcAddr;
+	}
+
+	if (pVersionStruct->loaderLayerInterfaceVersion < CURRENT_LOADER_LAYER_INTERFACE_VERSION) {
+		loader_layer_if_version = pVersionStruct->loaderLayerInterfaceVersion;
+	}
+	else if (pVersionStruct->loaderLayerInterfaceVersion > CURRENT_LOADER_LAYER_INTERFACE_VERSION) {
+		pVersionStruct->loaderLayerInterfaceVersion = CURRENT_LOADER_LAYER_INTERFACE_VERSION;
+	}
+
 
 	return VK_SUCCESS;
 }
