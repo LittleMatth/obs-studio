@@ -26,29 +26,6 @@
 //#define DEBUG_PRINT
 //#define DEBUG_PRINT_PROCADDR
 
-#ifdef DEBUG_PRINT
-#include <stdio.h>
-#define DbgOut(x) OutputDebugStringA(x)
-#define DbgOut1(x,y)				\
-	{					\
-		char string[256];		\
-		sprintf(string, x, y);		\
-		DbgOut(string);			\
-	}					\
-
-#define DbgOut2(x,y,z)				\
-	{					\
-		char string[256];		\
-		sprintf(string, x, y, z);	\
-		DbgOut(string);			\
-	}					\
-
-#if defined( DEBUG_PRINT_PROCADDR )
-#define DbgOutProcAddr(x, y, z) DbgOut2(x, y, z)
-#else
-#define DbgOutProcAddr(x, y, z)
-#endif
-
 const char * VkResultString(VkResult result) {
 	switch (result) {
 	case VK_SUCCESS: return "VK_SUCCESS"; break;
@@ -83,15 +60,38 @@ const char * VkResultString(VkResult result) {
 	case VK_ERROR_NOT_PERMITTED_EXT: return "VK_ERROR_NOT_PERMITTED_EXT"; break;
 	case VK_ERROR_INVALID_DEVICE_ADDRESS_EXT: return "VK_ERROR_INVALID_DEVICE_ADDRESS_EXT"; break;
 	case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT: return "VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT"; break;
-	//case VK_ERROR_OUT_OF_POOL_MEMORY_KHR: return "VK_ERROR_OUT_OF_POOL_MEMORY_KHR"; break;
-	//case VK_ERROR_INVALID_EXTERNAL_HANDLE_KHR: return "VK_ERROR_INVALID_EXTERNAL_HANDLE_KHR"; break;
-	//case VK_RESULT_BEGIN_RANGE: return "VK_RESULT_BEGIN_RANGE"; break;
-	//case VK_RESULT_END_RANGE: return "VK_RESULT_END_RANGE"; break;
+		//case VK_ERROR_OUT_OF_POOL_MEMORY_KHR: return "VK_ERROR_OUT_OF_POOL_MEMORY_KHR"; break;
+		//case VK_ERROR_INVALID_EXTERNAL_HANDLE_KHR: return "VK_ERROR_INVALID_EXTERNAL_HANDLE_KHR"; break;
+		//case VK_RESULT_BEGIN_RANGE: return "VK_RESULT_BEGIN_RANGE"; break;
+		//case VK_RESULT_END_RANGE: return "VK_RESULT_END_RANGE"; break;
 	case VK_RESULT_RANGE_SIZE: return "VK_RESULT_RANGE_SIZE"; break;
 	case VK_RESULT_MAX_ENUM: return "VK_RESULT_MAX_ENUM"; break;
 	default: return "UNKNOWN VK_RESULT"; break;
 	}
 }
+
+#ifdef DEBUG_PRINT
+#include <stdio.h>
+#define DbgOut(x) OutputDebugStringA(x)
+#define DbgOut1(x,y)				\
+	{					\
+		char string[256];		\
+		sprintf(string, x, y);		\
+		DbgOut(string);			\
+	}					\
+
+#define DbgOut2(x,y,z)				\
+	{					\
+		char string[256];		\
+		sprintf(string, x, y, z);	\
+		DbgOut(string);			\
+	}					\
+
+#if defined( DEBUG_PRINT_PROCADDR )
+#define DbgOutProcAddr(x, y, z) DbgOut2(x, y, z)
+#else
+#define DbgOutProcAddr(x, y, z)
+#endif
 #define DbgOutRes(x,y)						\
 	{							\
 		char string[256];				\
@@ -620,7 +620,9 @@ static inline bool vk_shtex_init_vulkan_tex(deviceData * devData, swapchainData 
 	DbgOutRes("# OBS_Layer # AllocateMemory %s\n", res);
 
 	if (VK_SUCCESS != res) {
+		hlog("vk_shtex_init_vulkan_tex: failed to AllocateMemory : %s", VkResultString(res));
 		dispatchTable->DestroyImage(devData->device, swpchData->exportedImage, NULL);
+		swpchData->exportedImage = NULL;
 		return false;
 	}
 
@@ -1158,9 +1160,11 @@ VKAPI_ATTR void VKAPI_CALL OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainK
 
 	swapchainData* swchData = GetSwapchainData(devData, swapchain);
 	if (swchData) {
-		dispatchTable->DestroyImage(device, swchData->exportedImage, NULL);
+		if (swchData->exportedImage)
+			dispatchTable->DestroyImage(device, swchData->exportedImage, NULL);
 
-		dispatchTable->FreeMemory(device, swchData->exportedImageMemory, NULL);
+		if (swchData->exportedImageMemory)
+			dispatchTable->FreeMemory(device, swchData->exportedImageMemory, NULL);
 
 		swchData->handle = INVALID_HANDLE_VALUE;
 		swchData->swapchain = VK_NULL_HANDLE;
