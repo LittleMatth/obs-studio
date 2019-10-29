@@ -133,6 +133,7 @@ typedef struct swapchainData {
 	struct shtex_data *		shtex_info;
 	ID3D11Texture2D *		d3d11_tex;
 	BOOL				sharedTextureCaptured;
+	VkImage				swapchainImages[MAX_IMAGES_PER_SWAPCHAIN];
 }swapchainData;
 
 typedef struct deviceData {
@@ -523,7 +524,7 @@ static inline bool vk_shtex_init_vulkan_tex(deviceData * devData, swapchainData 
 	createInfo.pNext = &externalMemoryImageInfo;
 	createInfo.flags = 0;			// VkImageCreateFlags       
 	createInfo.imageType = VK_IMAGE_TYPE_2D;
-	createInfo.format = VK_FORMAT_R8G8B8A8_UNORM; //swpchData->imageFormat;
+	createInfo.format = VK_FORMAT_B8G8R8A8_UNORM; //swpchData->imageFormat;
 	createInfo.extent.width = swpchData->imageExtent.width;
 	createInfo.extent.height = swpchData->imageExtent.height;
 	createInfo.extent.depth = 1;
@@ -1084,7 +1085,10 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(VkPhysicalDevice physicalDevice,
 
 	dispatchTable->BeginCommandBuffer = (PFN_vkBeginCommandBuffer)gdpa(*pDevice, "vkBeginCommandBuffer");
 	dispatchTable->EndCommandBuffer = (PFN_vkEndCommandBuffer)gdpa(*pDevice, "vkEndCommandBuffer");
+
 	dispatchTable->CmdCopyImage = (PFN_vkCmdCopyImage)gdpa(*pDevice, "vkCmdCopyImage");
+	//dispatchTable->CmdBlitImage = (PFN_vkCmdBlitImage)gdpa(*pDevice, "vkCmdBlitImage"); //might help handling formats
+
 	dispatchTable->CmdPipelineBarrier = (PFN_vkCmdPipelineBarrier)gdpa(*pDevice, "vkCmdPipelineBarrier");
 	dispatchTable->GetDeviceQueue = (PFN_vkGetDeviceQueue)gdpa(*pDevice, "vkGetDeviceQueue");
 	dispatchTable->QueueSubmit = (PFN_vkQueueSubmit)gdpa(*pDevice, "vkQueueSubmit");
@@ -1148,6 +1152,16 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(VkDevice device, const VkS
 	
 
 	VkResult res = dispatchTable->CreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
+
+	uint32_t pSwapchainImageCount = 0;
+	res = dispatchTable->GetSwapchainImagesKHR(devData->device, *pSwapchain, &pSwapchainImageCount, NULL);
+	DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
+
+	if (pSwapchainImageCount > 0) {
+		pSwapchainImageCount = (pSwapchainImageCount < MAX_IMAGES_PER_SWAPCHAIN) ? pSwapchainImageCount : MAX_IMAGES_PER_SWAPCHAIN;
+		res = dispatchTable->GetSwapchainImagesKHR(devData->device, *pSwapchain, &pSwapchainImageCount, swchData->swapchainImages);
+		DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
+	}
 
 	swchData->swapchain = *pSwapchain;
 
@@ -1225,37 +1239,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresen
 			res = dispatchTable->BeginCommandBuffer(devData->cmdBuffer, &beginInfo);
 			DbgOutRes("# OBS_Layer # BeginCommandBuffer %s\n", res);
 
-			VkImageCopy cpy;
-			cpy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			cpy.srcSubresource.mipLevel = 0;
-			cpy.srcSubresource.baseArrayLayer = 0;
-			cpy.srcSubresource.layerCount = 1;
-			cpy.srcOffset.x = 0;
-			cpy.srcOffset.y = 0;
-			cpy.srcOffset.z = 0;
-			cpy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			cpy.dstSubresource.mipLevel = 0;
-			cpy.dstSubresource.baseArrayLayer = 0;
-			cpy.dstSubresource.layerCount = 1;
-			cpy.dstOffset.x = 0;
-			cpy.dstOffset.y = 0;
-			cpy.dstOffset.z = 0;
-			cpy.extent.width = swpchData->imageExtent.width;
-			cpy.extent.height = swpchData->imageExtent.height;
-			cpy.extent.depth = 1;
-
-			uint32_t pSwapchainImageCount = 0;
-			VkImage pSwapchainImages[MAX_IMAGES_PER_SWAPCHAIN];
-			res = dispatchTable->GetSwapchainImagesKHR(devData->device, pPresentInfo->pSwapchains[i], &pSwapchainImageCount, NULL);
-			DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
-
-			if (pSwapchainImageCount > 0) {
-				pSwapchainImageCount = (pSwapchainImageCount < MAX_IMAGES_PER_SWAPCHAIN) ? pSwapchainImageCount : MAX_IMAGES_PER_SWAPCHAIN;
-				res = dispatchTable->GetSwapchainImagesKHR(devData->device, pPresentInfo->pSwapchains[i], &pSwapchainImageCount, pSwapchainImages);
-				DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
-			}
-
-			VkImage currentBackBuffer = pSwapchainImages[pPresentInfo->pImageIndices[i]];
+			VkImage currentBackBuffer = swpchData->swapchainImages[pPresentInfo->pImageIndices[i]];
 
 			// transition currentBackBuffer to transfer source state
 			VkImageMemoryBarrier presentMemoryBarrier;
@@ -1299,6 +1283,25 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue, const VkPresen
 			dispatchTable->CmdPipelineBarrier(devData->cmdBuffer, srcStages, dstStages, 0, 0, NULL, 0, NULL, 1, &destMemoryBarrier);
 
 			// copy currentBackBuffer's content to our interop image
+
+			VkImageCopy cpy;
+			cpy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			cpy.srcSubresource.mipLevel = 0;
+			cpy.srcSubresource.baseArrayLayer = 0;
+			cpy.srcSubresource.layerCount = 1;
+			cpy.srcOffset.x = 0;
+			cpy.srcOffset.y = 0;
+			cpy.srcOffset.z = 0;
+			cpy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			cpy.dstSubresource.mipLevel = 0;
+			cpy.dstSubresource.baseArrayLayer = 0;
+			cpy.dstSubresource.layerCount = 1;
+			cpy.dstOffset.x = 0;
+			cpy.dstOffset.y = 0;
+			cpy.dstOffset.z = 0;
+			cpy.extent.width = swpchData->imageExtent.width;
+			cpy.extent.height = swpchData->imageExtent.height;
+			cpy.extent.depth = 1;
 			dispatchTable->CmdCopyImage(devData->cmdBuffer, currentBackBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swpchData->exportedImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cpy);
 
 			// Restore the swap chain image layout to what it was before.
