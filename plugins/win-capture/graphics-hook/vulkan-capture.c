@@ -836,7 +836,6 @@ const char *VkResultString(VkResult result)
 	}
 }
 
-
 DXGI_FORMAT GetNeededDXGIFormat(VkFormat vulkanSwapchainFormat)
 {
 	//this is not a real format matching !
